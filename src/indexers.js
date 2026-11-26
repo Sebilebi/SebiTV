@@ -318,6 +318,95 @@ export class IndexerHub {
     }
   }
 
+  async searchKnaben(query) {
+    try {
+      const res = await fetch('https://api.knaben.org/v1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          query,
+          order_by: 'seeders',
+          size: 35,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const hits = data?.hits || [];
+      return hits
+        .map((h) => {
+          const hash = (h.hash || extractInfoHashFromMagnet(h.magnetUrl || '') || '').toLowerCase();
+          const title = h.title || '';
+          if (!title || (!hash && !h.magnetUrl)) return null;
+          const magnet =
+            h.magnetUrl ||
+            `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(title)}&tr=${encodeURIComponent(
+              'udp://tracker.opentrackr.org:1337/announce'
+            )}`;
+          const bytes = Number(h.bytes || 0);
+          return {
+            source: `knaben:${h.trackerId || 'dht'}`,
+            extId: null,
+            detailUrl: h.details || null,
+            title,
+            sizeBytes: bytes,
+            sizeStr: bytes ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : '',
+            filesCount: 1,
+            seeders: Number(h.liveSeeders ?? h.seeders ?? 0),
+            leechers: Number(h.livePeers ?? h.peers ?? 0),
+            magnet,
+            infoHash: hash || extractInfoHashFromMagnet(magnet),
+          };
+        })
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  async searchApibay(query) {
+    try {
+      const url = `https://apibay.org/q.php?q=${encodeURIComponent(query)}`;
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json', 'User-Agent': this.getConfig().extUserAgent },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return [];
+      const items = await res.json();
+      if (!Array.isArray(items)) return [];
+      const trackers = [
+        'udp://tracker.opentrackr.org:1337/announce',
+        'udp://open.stealth.si:80/announce',
+        'udp://exodus.desync.com:6969/announce',
+        'udp://tracker.torrent.eu.org:451/announce',
+      ]
+        .map((t) => `&tr=${encodeURIComponent(t)}`)
+        .join('');
+
+      return items
+        .filter((it) => it && it.info_hash && it.info_hash !== '0000000000000000000000000000000000000000')
+        .map((it) => {
+          const hash = String(it.info_hash).toLowerCase();
+          const sizeBytes = Number.parseInt(it.size || '0', 10) || 0;
+          return {
+            source: 'apibay',
+            extId: null,
+            detailUrl: null,
+            title: it.name || '',
+            sizeBytes,
+            sizeStr: sizeBytes ? `${(sizeBytes / 1024 ** 3).toFixed(2)} GB` : '',
+            filesCount: Number.parseInt(it.num_files || '1', 10) || 1,
+            seeders: Number.parseInt(it.seeders || '0', 10) || 0,
+            leechers: Number.parseInt(it.leechers || '0', 10) || 0,
+            magnet: `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(it.name || '')}${trackers}`,
+            infoHash: hash,
+          };
+        });
+    } catch {
+      return [];
+    }
+  }
+
   async resolvePlayablePayload(candidate) {
     if (candidate.magnet) return { magnet: candidate.magnet, infoHash: candidate.infoHash || extractInfoHashFromMagnet(candidate.magnet) };
     if (candidate.source === 'ext.to' && candidate.extId) {

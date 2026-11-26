@@ -255,7 +255,14 @@ export class SebiEngine {
       );
       if (origTitle !== esTitle) {
         tasks.push(this.indexers.searchExt({ query: `${origTitle} S${s2}E${e2} Castellano`, category: 2 }));
+        tasks.push(this.indexers.searchKnaben(`${origTitle} S${s2}E${e2} Castellano`));
       }
+      // Respaldo automático sin captcha (Knaben + Apibay + Prowlarr) si ext.to activa Cloudflare
+      tasks.push(this.indexers.searchKnaben(`${esTitle} S${s2}E${e2} Castellano`));
+      tasks.push(this.indexers.searchKnaben(`${esTitle} ${ep.season_number}x${e2} Castellano`));
+      tasks.push(this.indexers.searchKnaben(`${esTitle} S${s2} Castellano`));
+      tasks.push(this.indexers.searchApibay(`${esTitle} ${ep.season_number}x${e2} Castellano`));
+      tasks.push(this.indexers.searchApibay(`${esTitle} S${s2}E${e2} Castellano`));
       tasks.push(this.indexers.searchProwlarr(`${esTitle} S${s2}E${e2} Castellano`, [5000]));
     }
 
@@ -336,7 +343,11 @@ export class SebiEngine {
       tasks.push(this.indexers.searchExt({ query: `${item.title} Castellano`, category: 1 }));
       if (item.original_title && item.original_title !== item.title) {
         tasks.push(this.indexers.searchExt({ query: `${item.original_title} Castellano`, category: 1 }));
+        tasks.push(this.indexers.searchKnaben(`${item.original_title} Castellano`));
       }
+      tasks.push(this.indexers.searchKnaben(`${item.title} ${item.year || ''} Castellano`.trim()));
+      tasks.push(this.indexers.searchKnaben(`${item.title} Castellano`));
+      tasks.push(this.indexers.searchApibay(`${item.title} Castellano`));
       tasks.push(this.indexers.searchProwlarr(`${item.title} Castellano`, [2000]));
     }
 

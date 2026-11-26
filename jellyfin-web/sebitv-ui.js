@@ -243,6 +243,33 @@
     window.location.hash = `!/details?id=${encodeURIComponent(jellyfinId)}`;
   }
 
+  async function syncBrowserJellyfinToken() {
+    try {
+      let token = window.ApiClient?.accessToken?.() || window.ApiClient?._serverInfo?.AccessToken || null;
+      let userId = window.ApiClient?.getCurrentUserId?.() || window.ApiClient?._serverInfo?.UserId || '';
+      if (!token) {
+        const raw = localStorage.getItem('jellyfin_credentials');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const srv = (parsed.Servers || []).find((s) => s.AccessToken);
+          if (srv) {
+            token = srv.AccessToken;
+            userId = srv.UserId || '';
+          }
+        }
+      }
+      if (token && !state.tokenSynced) {
+        const res = await api('/api/jellyfin-auth', {
+          method: 'POST',
+          body: JSON.stringify({ accessToken: token, userId }),
+        });
+        if (res.ok) state.tokenSynced = true;
+      }
+    } catch {
+      // Silenciar hasta que el usuario inicie sesión en Jellyfin
+    }
+  }
+
   /* =========================================================================
      3. Ficha Detallada: Sin botón Play hasta que esté 100% descargado
      ========================================================================= */
@@ -272,11 +299,7 @@
         if (item.status === 'available') {
           // ¡SOLO SALE PLAY CUANDO ESTÁ DESCARGADO AL 100%!
           heroButtonsHtml = `
-            ${
-              item.jellyfin_id
-                ? `<button class="sebitv-pill-btn play-ready" id="sebitv-play-movie">▶ Play en Jellyfin</button>`
-                : `<span class="sebitv-pill-btn play-ready">✔ Descargada (Escaneando en Jellyfin...)</span>`
-            }
+            <button class="sebitv-pill-btn play-ready" id="sebitv-play-movie">▶ Play</button>
             <button class="sebitv-pill-btn ${item.pinned ? 'pinned' : 'secondary'}" id="sebitv-pin-movie">
               ${item.pinned ? '📌 Fijada (No borrar)' : '📌 Fijar película'}
             </button>
@@ -386,8 +409,8 @@
                 if (ep.status === 'available') {
                   // SOLO CUANDO ESTÁ DESCARGADO APARECE EL BOTÓN PLAY
                   actionHtml = `
-                    <button class="sebitv-pill-btn play-ready" data-ep-play="1" data-jfid="${esc(
-                      item.jellyfin_id || ''
+                    <button class="sebitv-pill-btn play-ready" data-ep-play="1" data-epid="${ep.id}" data-jfid="${esc(
+                      ep.jellyfin_episode_id || item.jellyfin_id || ''
                     )}">▶ Play</button>
                     <button class="sebitv-pill-btn ${ep.pinned ? 'pinned' : 'secondary'}" data-ep-pin="${ep.id}" data-pinned="${
                       ep.ownPinned ? '1' : '0'
@@ -478,8 +501,22 @@
         pickMovBtn.onclick = () => showCandidatePicker('movie', tmdbId, null);
       }
       const playMovBtn = document.getElementById('sebitv-play-movie');
-      if (playMovBtn && item.jellyfin_id) {
-        playMovBtn.onclick = () => navigateToJellyfinItem(item.jellyfin_id);
+      if (playMovBtn) {
+        playMovBtn.onclick = async () => {
+          playMovBtn.disabled = true;
+          playMovBtn.textContent = '⏳ Abriendo...';
+          await syncBrowserJellyfinToken();
+          const res = await api('/api/play-target', {
+            method: 'POST',
+            body: JSON.stringify({ mediaType: 'movie', itemId: item.id }),
+          });
+          if (res.jellyfinId) {
+            navigateToJellyfinItem(res.jellyfinId);
+          } else {
+            playMovBtn.disabled = false;
+            playMovBtn.textContent = '⏳ Escaneando biblioteca (reintenta en 3s)';
+          }
+        };
       }
       const pinMovBtn = document.getElementById('sebitv-pin-movie');
       if (pinMovBtn) {
@@ -609,10 +646,21 @@
       });
 
       body.querySelectorAll('[data-ep-play="1"]').forEach((btn) => {
-        btn.onclick = () => {
-          const jfId = btn.getAttribute('data-jfid');
-          if (jfId) navigateToJellyfinItem(jfId);
-          else closeOverlay();
+        btn.onclick = async () => {
+          btn.disabled = true;
+          btn.textContent = '⏳ Abriendo...';
+          await syncBrowserJellyfinToken();
+          const epId = Number(btn.getAttribute('data-epid'));
+          const res = await api('/api/play-target', {
+            method: 'POST',
+            body: JSON.stringify({ mediaType: 'tv', itemId: item.id, episodeId: epId }),
+          });
+          if (res.jellyfinId) {
+            navigateToJellyfinItem(res.jellyfinId);
+          } else {
+            btn.disabled = false;
+            btn.textContent = '⏳ Escaneando (3s)...';
+          }
         };
       });
 
@@ -1042,6 +1090,7 @@
      ========================================================================= */
   async function backgroundPoll() {
     try {
+      await syncBrowserJellyfinToken();
       const { active } = await api('/api/downloads/active');
       const count = active?.length || 0;
       const prevCount = state.activeDownloadsCount;
@@ -1097,6 +1146,7 @@
 
   function boot() {
     mountFloatingBar();
+    syncBrowserJellyfinToken();
     setTimeout(onRouteOrDomChange, 900);
     observer.observe(document.body, { childList: true, subtree: true });
     state.pollTimer = setInterval(backgroundPoll, 3500);

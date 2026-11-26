@@ -10,6 +10,30 @@ export class JellyfinClient {
     return token ? `${base}, Token="${token}"` : base;
   }
 
+  async saveBrowserToken(accessToken, userId = '') {
+    if (!accessToken) return false;
+    try {
+      const cfg = this.getConfig();
+      const verifyRes = await fetch(`${cfg.jellyfinUrl}/System/Info`, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: this.#authHeader(accessToken),
+          'X-Emby-Authorization': this.#authHeader(accessToken),
+          'X-Emby-Token': accessToken,
+        },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!verifyRes.ok) return false;
+      this.db.setSetting('jellyfinAccessToken', accessToken);
+      if (userId) this.db.setSetting('jellyfinUserId', userId);
+      this.bootstrapped = false;
+      await this.ensureBootstrap();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async getToken() {
     const cfg = this.getConfig();
     if (cfg.jellyfinApiKey) return cfg.jellyfinApiKey;
@@ -29,6 +53,7 @@ export class JellyfinClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: this.#authHeader(),
           'X-Emby-Authorization': this.#authHeader(),
         },
         body: JSON.stringify({
@@ -56,11 +81,12 @@ export class JellyfinClient {
     const cfg = this.getConfig();
     const token = await this.getToken();
     if (!token) {
-      throw new Error('Jellyfin aún no tiene credenciales configuradas (JELLYFIN_USER/JELLYFIN_PASS o JELLYFIN_API_KEY).');
+      throw new Error('Jellyfin aún no tiene credenciales configuradas.');
     }
 
     const headers = {
       Accept: 'application/json',
+      Authorization: this.#authHeader(token),
       'X-Emby-Authorization': this.#authHeader(token),
       'X-Emby-Token': token,
     };

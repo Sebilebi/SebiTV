@@ -87,6 +87,69 @@ export function createSebiApp() {
         return;
       }
 
+      // 1b. Sincronización automática del token de sesión desde el navegador Jellyfin (cero configuración manual)
+      if (req.method === 'POST' && pathname === '/api/jellyfin-auth') {
+        const { accessToken, userId } = await readJsonBody(req);
+        const ok = await jellyfin.saveBrowserToken(accessToken, userId);
+        if (ok) {
+          await jellyfin.refreshLibraries();
+        }
+        sendJson(res, 200, { ok });
+        return;
+      }
+
+      // 1c. Resolver ID exacto de reproducción en Jellyfin para un capítulo o película descargada
+      if (req.method === 'POST' && pathname === '/api/play-target') {
+        const { mediaType, itemId, episodeId } = await readJsonBody(req);
+        await jellyfin.ensureBootstrap();
+        const item = db.getCatalogItemById(Number(itemId));
+        if (!item) {
+          sendJson(res, 404, { error: 'Elemento no encontrado' });
+          return;
+        }
+
+        if (!item.jellyfin_id) {
+          await jellyfin.refreshLibraries();
+          const jf = await jellyfin.findItemByTmdb(item.tmdb_id, item.media_type);
+          if (jf?.Id) {
+            db.updateMovieDownloadState(item.id, { jellyfinId: jf.Id });
+            item.jellyfin_id = jf.Id;
+          }
+        }
+
+        if (mediaType === 'movie') {
+          sendJson(res, 200, { jellyfinId: item.jellyfin_id || null });
+          return;
+        }
+
+        const ep = db.getEpisodeById(Number(episodeId));
+        let epJfId = ep?.jellyfin_episode_id || null;
+        if (!epJfId && item.jellyfin_id && ep) {
+          await jellyfin.refreshItem(item.jellyfin_id);
+          const jfEps = await jellyfin.getSeriesEpisodesInJellyfin(item.jellyfin_id);
+          const match = jfEps.find(
+            (e) =>
+              Number(e.ParentIndexNumber) === Number(ep.season_number) &&
+              Number(e.IndexNumber) === Number(ep.episode_number) &&
+              e.LocationType !== 'Virtual'
+          ) || jfEps.find(
+            (e) =>
+              Number(e.ParentIndexNumber) === Number(ep.season_number) &&
+              Number(e.IndexNumber) === Number(ep.episode_number)
+          );
+          if (match?.Id) {
+            epJfId = match.Id;
+            db.updateEpisodeState(ep.id, { jellyfinEpisodeId: epJfId });
+          }
+        }
+
+        sendJson(res, 200, {
+          jellyfinId: epJfId || item.jellyfin_id || null,
+          seriesJellyfinId: item.jellyfin_id || null,
+        });
+        return;
+      }
+
       // 2. Ajustes dinámicos desde la propia interfaz de Jellyfin
       if (req.method === 'GET' && pathname === '/api/settings') {
         const cfg = getConfig();
