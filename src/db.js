@@ -29,6 +29,7 @@ export class SebiDatabase {
         title TEXT NOT NULL,
         original_title TEXT,
         search_titles_json TEXT NOT NULL DEFAULT '[]',
+        related_movies_json TEXT NOT NULL DEFAULT '[]',
         year INTEGER,
         poster_url TEXT,
         backdrop_url TEXT,
@@ -41,6 +42,7 @@ export class SebiDatabase {
         progress REAL NOT NULL DEFAULT 0,
         download_speed INTEGER NOT NULL DEFAULT 0,
         torrent_hash TEXT,
+        rejected_hashes_json TEXT NOT NULL DEFAULT '[]',
         file_path TEXT,
         watched_at TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -109,6 +111,8 @@ export class SebiDatabase {
     for (const sql of [
       'ALTER TABLE episodes ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0',
       'ALTER TABLE catalog_items ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0',
+      "ALTER TABLE catalog_items ADD COLUMN rejected_hashes_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE catalog_items ADD COLUMN related_movies_json TEXT NOT NULL DEFAULT '[]'",
     ]) {
       try {
         this.db.exec(sql);
@@ -197,9 +201,9 @@ export class SebiDatabase {
       .prepare(
         `INSERT INTO catalog_items (
           tmdb_id, media_type, is_anime, anilist_id, imdb_id, tvdb_id,
-          title, original_title, search_titles_json, year, poster_url, backdrop_url,
+          title, original_title, search_titles_json, related_movies_json, year, poster_url, backdrop_url,
           overview, folder_path, jellyfin_id, pinned, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(tmdb_id, media_type) DO UPDATE SET
           is_anime = excluded.is_anime,
           anilist_id = COALESCE(excluded.anilist_id, catalog_items.anilist_id),
@@ -208,6 +212,7 @@ export class SebiDatabase {
           title = excluded.title,
           original_title = excluded.original_title,
           search_titles_json = excluded.search_titles_json,
+          related_movies_json = excluded.related_movies_json,
           year = excluded.year,
           poster_url = excluded.poster_url,
           backdrop_url = excluded.backdrop_url,
@@ -226,6 +231,7 @@ export class SebiDatabase {
         item.title,
         item.originalTitle ?? null,
         JSON.stringify(item.searchTitles || []),
+        JSON.stringify(item.relatedMovies || []),
         item.year ?? null,
         item.posterUrl ?? null,
         item.backdropUrl ?? null,
@@ -271,6 +277,7 @@ export class SebiDatabase {
       jellyfinId: 'jellyfin_id',
       pinned: 'pinned',
       manualOverride: 'manual_override',
+      rejectedHashesJson: 'rejected_hashes_json',
       watchedAt: 'watched_at',
     };
     for (const [k, col] of Object.entries(map)) {

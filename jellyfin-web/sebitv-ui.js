@@ -427,7 +427,7 @@
           <button class="sebitv-pill-btn" id="sebitv-dl-all-series">⬇ Descargar Serie Completa</button>
           ${
             hasSpecials
-              ? `<button class="sebitv-pill-btn secondary" id="sebitv-dl-ovas">⬇ Descargar OVAs / Películas</button>`
+              ? `<button class="sebitv-pill-btn secondary" id="sebitv-dl-ovas">⬇ Descargar OVAs / Especiales</button>`
               : ''
           }
           ${
@@ -554,6 +554,19 @@
         seasonsSectionHtml = `<div id="sebitv-candidate-picker-slot" style="margin-top:16px;"></div>`;
       }
 
+      const relatedMovies = Array.isArray(item.relatedMovies) ? item.relatedMovies : [];
+      const relatedMoviesHtml =
+        mediaType === 'tv' && relatedMovies.length > 0
+          ? `
+            <div style="margin:18px 0 12px;">
+              <div class="sebitv-section-title" style="margin-top:0;">🎬 Películas de esta Saga</div>
+              <div class="sebitv-carousel">
+                ${relatedMovies.map((m) => renderCardHtml(m)).join('')}
+              </div>
+            </div>
+          `
+          : '';
+
       body.innerHTML = `
         <div class="sebitv-hero" style="${backdrop ? `background-image:url('${esc(backdrop)}')` : ''}">
           <img class="sebitv-hero-poster" src="${esc(poster)}" alt="${esc(item.title)}">
@@ -568,8 +581,10 @@
             <div class="sebitv-hero-actions">${heroButtonsHtml}</div>
           </div>
         </div>
+        ${relatedMoviesHtml}
         ${seasonsSectionHtml}
       `;
+      bindCardClicks(body);
 
       // Enlazar eventos de Película
       const dlMovBtn = document.getElementById('sebitv-dl-movie');

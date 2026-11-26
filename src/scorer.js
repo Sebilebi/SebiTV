@@ -4,8 +4,20 @@ const VIDEO_EXT_RE = /\.(mkv|mp4|avi|webm|m4v|ts)$/i;
 const CAM_RE = /\b(hdcam|camrip|cam|ts-screener|hdts|telesync|telecine|workprint)\b/i;
 const ANIME_RAW_RE = /\b(\[raw\]|raw-raws|\braw\b)\b/i;
 
-// Sagas/secuelas que NO deben confundirse entre sí (ej. Dragon Ball Z != Dragon Ball DAIMA / Super / GT / Kai)
-const SEQUEL_TOKENS = ['daima', 'super', 'gt', 'kai', 'shippuden', 'boruto', 'brotherhood', 'z'];
+// Sagas/secuelas/spin-offs que NO deben confundirse entre sí (ej. Dragon Ball Z != DAIMA/Kai, MHA != Vigilantes)
+const SEQUEL_TOKENS = [
+  'daima',
+  'super',
+  'gt',
+  'kai',
+  'shippuden',
+  'boruto',
+  'brotherhood',
+  'vigilante',
+  'vigilantes',
+  'illegals',
+  'z',
+];
 
 function normalizeText(s = '') {
   return String(s || '')
@@ -84,10 +96,94 @@ function numberInRangePattern(releaseTitle, targetNum) {
   return false;
 }
 
-export function classifyEpisodeMatch(releaseTitle, { seasonNumber, episodeNumber, absNumber, isAnime }) {
+function extractExplicitSeasonInfo(releaseTitle = '') {
+  const hasFinalSeason = /\b(final[\s._-]*season|the[\s._-]*final)\b/i.test(releaseTitle);
+  const patterns = [
+    /\bs0*(\d{1,2})(?:[\s._-]*e\d|\b)/i,
+    /\b(?:season|temporada|box)\s*0*(\d{1,2})\b/i,
+    /\b(\d{1,2})(?:st|nd|rd|th)\s+season\b/i,
+    /\b0*(\d{1,2})x\d{1,3}\b/i,
+  ];
+  for (const re of patterns) {
+    const m = releaseTitle.match(re);
+    if (m) return { explicitSeason: Number(m[1]), hasFinalSeason };
+  }
+  return { explicitSeason: null, hasFinalSeason };
+}
+
+function matchesMovieDistinctiveSubtitle(releaseTitle, acceptedTitles = [], year = null) {
+  if (year) {
+    const ym = releaseTitle.match(/\b(19\d{2}|20\d{2})\b/);
+    if (ym && Math.abs(Number(ym[1]) - year) <= 1) return true;
+  }
+
+  // Si la película pertenece a una saga y tiene subtítulo tras ":" o "-" (ej. "My Hero Academia: Dos héroes" / "Two Heroes"),
+  // exigir que coincida con alguno de los subtítulos cuando el torrent no indica año, evitando mezclar películas de la saga.
+  const subtitleTokenSets = [];
+  const stopWords = new Set(['the', 'movie', 'pelicula', 'film', 'ova', 'de', 'la', 'el', 'los', 'las', 'no', 'to']);
+  for (const raw of acceptedTitles) {
+    const cleaned = cleanSearchQueryTitle(raw);
+    const parts = cleaned.split(/\s*(?::|-\s+|–\s+|\bthe\s+movie\b)\s*/i);
+    if (parts.length >= 2) {
+      const subNorm = normalizeText(parts.slice(1).join(' '));
+      const toks = subNorm.split(' ').filter((w) => w.length >= 3 && !stopWords.has(w));
+      if (toks.length > 0) subtitleTokenSets.push(toks);
+    }
+  }
+  if (subtitleTokenSets.length === 0) return true;
+
+  const relTokens = new Set(normalizeText(releaseTitle).split(' ').filter(Boolean));
+  return subtitleTokenSets.some((toks) => toks.every((w) => relTokens.has(w)));
+}
+
+export function classifyEpisodeMatch(
+  releaseTitle,
+  { seasonNumber, episodeNumber, absNumber, isAnime, totalRegularSeasons = 0, episodeTitle = '' }
+) {
   const s2 = pad2(seasonNumber);
   const e2 = pad2(episodeNumber);
-  const e3 = String(episodeNumber).padStart(3, '0');
+  const { explicitSeason, hasFinalSeason } = extractExplicitSeasonInfo(releaseTitle);
+
+  // 0. Temporada 0 (OVAs / Especiales): NUNCA confundir con temporadas regulares ni "Final Season"
+  if (seasonNumber === 0) {
+    if (/\bs0*0[\s._-]*e0*\d+\b|\b0x0*\d+\b/i.test(releaseTitle)) {
+      const exactZero =
+        new RegExp(`\\bs0*0[\\s._-]*e0*${episodeNumber}(?!\\d)`, 'i').test(releaseTitle) ||
+        new RegExp(`\\b0x0*${episodeNumber}(?!\\d)`, 'i').test(releaseTitle);
+      return { matched: exactZero, isPack: false };
+    }
+    if ((explicitSeason !== null && explicitSeason > 0) || hasFinalSeason) {
+      return { matched: false, isPack: false };
+    }
+    const hasOvaMarker = /\b(ova|oad|ona|special|especial|sp\d*|jump[\s._-]*festa)\b/i.test(releaseTitle);
+    if (!hasOvaMarker) return { matched: false, isPack: false };
+
+    const epTitleWords = normalizeText(episodeTitle)
+      .split(' ')
+      .filter((w) => w.length >= 4 && !['episodio', 'episode', 'especial', 'special'].includes(w));
+    const relWords = new Set(normalizeText(releaseTitle).split(' ').filter(Boolean));
+    if (epTitleWords.length >= 2 && epTitleWords.filter((w) => relWords.has(w)).length >= 2) {
+      return { matched: true, isPack: false };
+    }
+
+    const ovaNumMatch = releaseTitle.match(/\b(?:ova|oad|special|especial|sp)[\s._-]*0*(\d{1,2})\b/i);
+    if (ovaNumMatch) {
+      return { matched: Number(ovaNumMatch[1]) === episodeNumber, isPack: false };
+    }
+    const dashNum = new RegExp(`(?:\\s-\\s*|\\[)0*${episodeNumber}(?:\\s|\\]|\\.|$)`, 'i').test(releaseTitle);
+    if (dashNum || episodeNumber === 1) {
+      return { matched: true, isPack: /\b(ovas|specials|batch|complete)\b/i.test(releaseTitle) };
+    }
+    return { matched: false, isPack: false };
+  }
+
+  // Bloquear colisión entre temporadas distintas (ej. S01E06 vs "2nd Season - 06" o "Final Season - 06")
+  if (explicitSeason !== null && explicitSeason !== seasonNumber) {
+    return { matched: false, isPack: false };
+  }
+  if (hasFinalSeason && (seasonNumber === 1 || (totalRegularSeasons > 1 && seasonNumber < totalRegularSeasons))) {
+    return { matched: false, isPack: false };
+  }
 
   // 1. Coincidencia exacta S01E05, 1x05 o Cap.105
   const exactPatterns = [
@@ -110,33 +206,35 @@ export function classifyEpisodeMatch(releaseTitle, { seasonNumber, episodeNumber
     }
   }
 
-  // 2. Formato Anime numeración directa ("- 05", "[05]", "DBZ 001 ", "Episode 05")
+  // 2. Formato Anime numeración directa ("- 05", "[05]", "DBZ 001 ", "4th Season - 10")
   if (isAnime) {
-    // Evitar confundir Películas ("Movie 01", "Película 1") u OVAs con el episodio 1 de TV
-    if (seasonNumber > 0 && /\b(movie|pel[ií]cula|ova|special|ost|soundtrack|audio\s+only|flac)\b/i.test(releaseTitle)) {
+    // Evitar confundir Películas ("Movie 01", "Película 1") u OVAs con episodios de temporada regular
+    if (/\b(movie|pel[ií]cula|ova|oad|special|ost|soundtrack|audio\s+only|flac)\b/i.test(releaseTitle)) {
       return { matched: false, isPack: false };
     }
 
-    const candidates = new Set([episodeNumber]);
-    if (absNumber) candidates.add(absNumber);
+    const candidates = new Set();
+    // Solo usar episodeNumber relativo si es Temporada 1 o el torrent nombra explícitamente esa temporada (ej. "4th Season - 10")
+    if (seasonNumber === 1 || explicitSeason === seasonNumber || (hasFinalSeason && seasonNumber === totalRegularSeasons)) {
+      candidates.add(episodeNumber);
+    }
+    // Si el torrent NO menciona ninguna temporada específica (numeración continua estilo Naruto/One Piece), usar absNumber
+    if (absNumber && explicitSeason === null && !hasFinalSeason) {
+      candidates.add(absNumber);
+    }
 
-    const wrongSeasonMention =
-      seasonNumber === 1 && /\b(s0*[2-9]|season\s*[2-9]|[2-9](?:nd|rd|th)\s+season|part\s*2)\b/i.test(releaseTitle);
-
-    if (!wrongSeasonMention) {
-      for (const num of candidates) {
-        const n2 = pad2(num);
-        const n3 = String(num).padStart(3, '0');
-        const animeEpRe = new RegExp(
-          `(?:\\s-\\s*|\\[|\\bep(?:isode)?[\\s._-]*|\\s)(?:0*${num}|${n2}|${n3})(?:v\\d)?(?:\\s|\\]|\\[|\\(|\\.|$)`,
-          'i'
-        );
-        if (animeEpRe.test(releaseTitle) && !/\b\d{4}\b/.test(String(num))) {
-          return { matched: true, isPack: isExplicitMultiEpPack };
-        }
-        if (numberInRangePattern(releaseTitle, num)) {
-          return { matched: true, isPack: true };
-        }
+    for (const num of candidates) {
+      const n2 = pad2(num);
+      const n3 = String(num).padStart(3, '0');
+      const animeEpRe = new RegExp(
+        `(?:\\s-\\s*|\\[|\\bep(?:isode)?[\\s._-]*|\\s)(?:0*${num}|${n2}|${n3})(?:v\\d)?(?:\\s|\\]|\\[|\\(|\\.|$)`,
+        'i'
+      );
+      if (animeEpRe.test(releaseTitle) && !/\b\d{4}\b/.test(String(num))) {
+        return { matched: true, isPack: isExplicitMultiEpPack };
+      }
+      if (numberInRangePattern(releaseTitle, num)) {
+        return { matched: true, isPack: true };
       }
     }
   }
@@ -201,6 +299,8 @@ export function scoreAndFilterCandidates(candidates, context) {
     seasonNumber = 1,
     episodeNumber = 1,
     absNumber = null,
+    totalRegularSeasons = 0,
+    episodeTitle = '',
     rejectedHashes = [],
     allowExternalSubFallback = false,
     matchedByImdb = false,
@@ -240,8 +340,18 @@ export function scoreAndFilterCandidates(candidates, context) {
     }
 
     const isExactImdbStream = Boolean(cand.matchedExactImdbEpisode || matchedByImdb);
+    const sharesAnyLongWord = (() => {
+      const relWords = new Set(normalizeText(title).split(' ').filter((w) => w.length >= 4));
+      return acceptedTitles.some((at) =>
+        normalizeText(cleanSearchQueryTitle(at))
+          .split(' ')
+          .some((w) => w.length >= 4 && relWords.has(w))
+      );
+    })();
     const isTrustedRegionalImdbTracker =
-      isExactImdbStream && /\b(mejortorrent|wolfmax|dontorrent|cinecalidad|nyaa)/i.test(String(cand.source || ''));
+      isExactImdbStream &&
+      /\b(mejortorrent|wolfmax|dontorrent|cinecalidad|nyaa)/i.test(String(cand.source || '')) &&
+      (mediaType === 'tv' || sharesAnyLongWord);
 
     if (!isTrustedRegionalImdbTracker && acceptedTitles.length > 0 && !matchesTitle(title, acceptedTitles)) {
       stats.titleMismatch++;
@@ -253,16 +363,42 @@ export function scoreAndFilterCandidates(candidates, context) {
       if (cand.matchedExactImdbEpisode) {
         isPack = Number.isInteger(cand.hintFileIndex);
       } else {
-        const epCheck = classifyEpisodeMatch(title, { seasonNumber, episodeNumber, absNumber, isAnime });
+        const epCheck = classifyEpisodeMatch(title, {
+          seasonNumber,
+          episodeNumber,
+          absNumber,
+          isAnime,
+          totalRegularSeasons,
+          episodeTitle,
+        });
         if (!epCheck.matched) {
           stats.episodeOrYearMismatch++;
           continue;
         }
         isPack = epCheck.isPack;
       }
-    } else if (year && !isExactImdbStream) {
-      const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
-      if (yearMatch && Math.abs(Number(yearMatch[1]) - year) > 1) {
+    } else {
+      // En películas: bloquear capítulos de series ("Hierro 08.mp4", "S01E01", "Cap.101") y archivos diminutos
+      if (
+        /\b(s\d{1,2}[\s._-]*e\d{1,3}|\d{1,2}x\d{1,3}|temporada\s*\d+|cap(?:itulo)?\.?\s*\d{2,4}|\bova\b|season\s*\d+)\b/i.test(
+          title
+        ) ||
+        /\b0[1-9]\.(?:mp4|mkv|avi)\b/i.test(title) ||
+        (!isAnime && cand.sizeBytes > 0 && cand.sizeBytes < 350_000_000)
+      ) {
+        stats.episodeOrYearMismatch++;
+        continue;
+      }
+
+      if (year && !cand.matchedExactImdbEpisode) {
+        const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
+        if (yearMatch && Math.abs(Number(yearMatch[1]) - year) > 1) {
+          stats.episodeOrYearMismatch++;
+          continue;
+        }
+      }
+
+      if (!cand.matchedExactImdbEpisode && !matchesMovieDistinctiveSubtitle(title, acceptedTitles, year)) {
         stats.episodeOrYearMismatch++;
         continue;
       }

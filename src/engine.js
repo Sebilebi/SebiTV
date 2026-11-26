@@ -23,6 +23,12 @@ function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
+function englishOrdinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+
 /**
  * Calcula los índices de la ventana deslizante [idx - behind .. idx + ahead]
  * y cuáles deben pre-descargarse vs borrarse.
@@ -185,6 +191,7 @@ export class SebiEngine {
       isAnime: Boolean(item.is_anime),
       pinned: Boolean(item.pinned),
       searchTitles: JSON.parse(item.search_titles_json || '[]'),
+      relatedMovies: JSON.parse(item.related_movies_json || '[]'),
       languageRule: item.is_anime
         ? '🇯🇵 Audio Japonés + Sub Español (Castellano > Latino)'
         : '🇪🇸 Audio Español Castellano (Sin subtítulos)',
@@ -206,6 +213,9 @@ export class SebiEngine {
     const titles = [...new Set([item.title, ...rawTitles].map(cleanSearchQueryTitle).filter(Boolean))];
     const s2 = pad2(ep.season_number);
     const e2 = pad2(ep.episode_number);
+    const totalRegularSeasons = this.db
+      .getSeasonsByItem(item.id)
+      .filter((s) => s.season_number > 0).length;
 
     const tasks = [];
     const imdbTaggedResults = [];
@@ -233,18 +243,33 @@ export class SebiEngine {
       const epNumPad = pad2(ep.abs_number || ep.episode_number);
       const epNum3 = String(ep.abs_number || ep.episode_number).padStart(3, '0');
 
-      tasks.push(this.indexers.searchNyaa(`Erai-raws ${primary} ${epNumPad}`));
-      tasks.push(this.indexers.searchNyaa(`${primary} ${epNumPad} Multi`));
-      tasks.push(this.indexers.searchNyaa(`${primary} ${epNum3}`));
-      tasks.push(this.indexers.searchNyaaNonEnglish(`${primary} ${epNumPad}`));
-      tasks.push(this.indexers.searchNyaa(`${primary} Batch`));
-      tasks.push(this.indexers.searchKnaben(`${primary} ${epNumPad}`));
-      tasks.push(this.indexers.searchKnaben(`${esTitle} Castellano`));
-      tasks.push(this.indexers.searchApibay(`${esTitle} Castellano`));
-      tasks.push(this.indexers.searchExt({ query: `${primary} ${epNumPad}`, category: 7 }));
-      tasks.push(this.indexers.searchExt({ query: `${primary} S${s2}E${e2}`, category: 7 }));
-      tasks.push(this.indexers.searchExt({ query: `${esTitle} Castellano`, category: 2 }));
-      tasks.push(this.indexers.searchProwlarr(`${primary} ${epNumPad}`, [5070, 5000]));
+      if (ep.season_number === 0) {
+        // Temporada 0 (OVAs y Especiales): buscar explícitamente OVA / Special / S00Exx
+        tasks.push(this.indexers.searchNyaa(`${primary} OVA`));
+        tasks.push(this.indexers.searchNyaa(`${primary} Special`));
+        tasks.push(this.indexers.searchNyaa(`${primary} S00E${e2}`));
+        tasks.push(this.indexers.searchNyaaNonEnglish(`${primary} OVA`));
+        tasks.push(this.indexers.searchKnaben(`${primary} OVA`));
+        tasks.push(this.indexers.searchExt({ query: `${primary} OVA`, category: 7 }));
+      } else {
+        tasks.push(this.indexers.searchNyaa(`Erai-raws ${primary} ${epNumPad}`));
+        tasks.push(this.indexers.searchNyaa(`${primary} ${epNumPad} Multi`));
+        tasks.push(this.indexers.searchNyaa(`${primary} ${epNum3}`));
+        tasks.push(this.indexers.searchNyaaNonEnglish(`${primary} ${epNumPad}`));
+        if (ep.season_number > 1) {
+          const ord = englishOrdinal(ep.season_number);
+          tasks.push(this.indexers.searchNyaa(`${primary} ${ord} Season ${e2}`));
+          tasks.push(this.indexers.searchNyaa(`${primary} S${s2}E${e2}`));
+        }
+        tasks.push(this.indexers.searchNyaa(`${primary} Batch`));
+        tasks.push(this.indexers.searchKnaben(`${primary} ${epNumPad}`));
+        tasks.push(this.indexers.searchKnaben(`${esTitle} Castellano`));
+        tasks.push(this.indexers.searchApibay(`${esTitle} Castellano`));
+        tasks.push(this.indexers.searchExt({ query: `${primary} ${epNumPad}`, category: 7 }));
+        tasks.push(this.indexers.searchExt({ query: `${primary} S${s2}E${e2}`, category: 7 }));
+        tasks.push(this.indexers.searchExt({ query: `${esTitle} Castellano`, category: 2 }));
+        tasks.push(this.indexers.searchProwlarr(`${primary} ${epNumPad}`, [5070, 5000]));
+      }
     } else {
       const esTitle = cleanSearchQueryTitle(item.title);
       const origTitle = cleanSearchQueryTitle(item.original_title || esTitle);
@@ -309,6 +334,8 @@ export class SebiEngine {
       seasonNumber: ep.season_number,
       episodeNumber: ep.episode_number,
       absNumber: ep.abs_number,
+      totalRegularSeasons,
+      episodeTitle: ep.title,
       rejectedHashes,
       allowExternalSubFallback,
       matchedByImdb: false,
@@ -324,6 +351,8 @@ export class SebiEngine {
       seasonNumber: ep.season_number,
       episodeNumber: ep.episode_number,
       absNumber: ep.abs_number,
+      totalRegularSeasons,
+      episodeTitle: ep.title,
       rejectedHashes,
       allowExternalSubFallback,
       matchedByImdb: true,
@@ -392,15 +421,16 @@ export class SebiEngine {
     }
 
     if (item.is_anime) {
-      const primary = cleanSearchQueryTitle(rawTitles[0] || item.title);
+      const topAnimeTitles = titles.slice(0, 3);
       const esTitle = cleanSearchQueryTitle(item.title);
-      tasks.push(this.indexers.searchNyaa(`${primary} Multi`));
-      tasks.push(this.indexers.searchNyaaNonEnglish(primary));
+      for (const t of topAnimeTitles) {
+        tasks.push(this.indexers.searchNyaa(t));
+        tasks.push(this.indexers.searchNyaaNonEnglish(t));
+      }
       tasks.push(this.indexers.searchKnaben(`${esTitle} Castellano`));
-      tasks.push(this.indexers.searchExt({ query: `${primary} MultiSub`, category: 7 }));
-      tasks.push(this.indexers.searchExt({ query: primary, category: 7 }));
+      tasks.push(this.indexers.searchExt({ query: `${topAnimeTitles[0]} MultiSub`, category: 7 }));
       tasks.push(this.indexers.searchExt({ query: `${esTitle} Castellano`, category: 1 }));
-      tasks.push(this.indexers.searchProwlarr(primary, [2000, 5070]));
+      tasks.push(this.indexers.searchProwlarr(topAnimeTitles[0], [2000, 5070]));
     } else {
       const esTitle = cleanSearchQueryTitle(item.title);
       const origTitle = cleanSearchQueryTitle(item.original_title || esTitle);
@@ -429,17 +459,29 @@ export class SebiEngine {
 
     const batches = await Promise.all(tasks);
     const allNormal = batches.flat();
+    const rejectedHashes = allLanguages ? [] : JSON.parse(item.rejected_hashes_json || '[]');
     const allowExternalSubFallback = Boolean(cfg.subdlApiKey);
+    const statsMovie = {
+      raw: 0,
+      noSeeds: 0,
+      rejectedHash: 0,
+      titleMismatch: 0,
+      episodeOrYearMismatch: 0,
+      languageRejected: 0,
+      accepted: 0,
+    };
 
     const scoredNormal = scoreAndFilterCandidates(allNormal, {
       isAnime: Boolean(item.is_anime),
       mediaType: 'movie',
       acceptedTitles: titles,
       year: item.year,
+      rejectedHashes,
       allowExternalSubFallback,
       matchedByImdb: false,
       allLanguages,
       preferences,
+      statsOut: statsMovie,
     });
 
     const scoredImdb = scoreAndFilterCandidates(imdbTagged, {
@@ -447,10 +489,12 @@ export class SebiEngine {
       mediaType: 'movie',
       acceptedTitles: titles,
       year: item.year,
+      rejectedHashes,
       allowExternalSubFallback,
       matchedByImdb: true,
       allLanguages,
       preferences,
+      statsOut: statsMovie,
     });
 
     const seen = new Set();
@@ -461,6 +505,32 @@ export class SebiEngine {
       seen.add(key);
       merged.push(c);
     }
+
+    logger.info(
+      'SCORER',
+      allLanguages ? 'lupa.movie_candidates' : 'movie.candidates',
+      `Búsqueda ${allLanguages ? '[LUPA MULTI-IDIOMA]' : '[PERFIL USUARIO]'} para película "${item.title}": ${
+        merged.length
+      } válidos de ${allNormal.length + imdbTagged.length} brutos`,
+      {
+        movie: item.title,
+        tmdbId: item.tmdb_id,
+        imdbId: item.imdb_id,
+        year: item.year,
+        isAnime: Boolean(item.is_anime),
+        allLanguages,
+        searchTitles: titles,
+        filterStats: statsMovie,
+        topCandidates: merged.slice(0, 5).map((c) => ({
+          source: c.source,
+          title: c.title,
+          seeders: c.seeders,
+          languages: c.languageBadges,
+          score: c.score,
+        })),
+      }
+    );
+
     return merged;
   }
 
@@ -607,7 +677,7 @@ export class SebiEngine {
         const hash = resolved.infoHash;
         if (!hash) throw new Error('No se pudo determinar el infoHash del torrent añadido.');
 
-        const files = await this.qbit.waitForFilesMetadata(hash, 22000);
+        const files = await this.qbit.waitForFilesMetadata(hash, 14000);
         if (files.length === 0) {
           await this.qbit.deleteTorrent(hash, true);
           throw new Error('Tiempo agotado descargando metadatos del magnet (sin semillas activas).');
@@ -755,8 +825,14 @@ export class SebiEngine {
     }
 
     let lastErr = null;
-    for (const cand of candidates.slice(0, 4)) {
+    for (const cand of candidates.slice(0, 8)) {
       try {
+        logger.info('QBIT', 'movie.try_candidate', `Probando candidato película "${cand.title}" (${cand.source}, ${cand.seeders} seeds)`, {
+          itemId: item.id,
+          source: cand.source,
+          title: cand.title,
+          seeders: cand.seeders,
+        });
         const resolved = await this.indexers.resolvePlayablePayload(cand);
         await this.qbit.addTorrent({
           magnet: resolved.magnet,
@@ -765,7 +841,11 @@ export class SebiEngine {
         });
 
         const hash = resolved.infoHash;
-        const files = await this.qbit.waitForFilesMetadata(hash, 45000);
+        const files = await this.qbit.waitForFilesMetadata(hash, 18000);
+        if (files.length === 0) {
+          await this.qbit.deleteTorrent(hash, true);
+          throw new Error('Tiempo agotado descargando metadatos del magnet (sin semillas activas).');
+        }
         const movieFile = selectMovieFileFromTorrent(files, cand.hintFileIndex ?? null);
         if (!movieFile) {
           await this.qbit.deleteTorrent(hash, true);
@@ -788,6 +868,11 @@ export class SebiEngine {
         return this.getRichCatalogItem(item.id);
       } catch (err) {
         lastErr = err;
+        logger.warn('QBIT', 'movie.candidate_failed', `Candidato película descartado "${cand.title}": ${err.message}`, {
+          itemId: item.id,
+          candidateTitle: cand.title,
+          error: err.message,
+        });
       }
     }
 
@@ -858,8 +943,9 @@ export class SebiEngine {
         continue;
       }
 
-      // Si lleva >= 75s totalmente estancado sin velocidad a bajo porcentaje, descartar y probar siguiente candidato
-      if (stalledElapsedMs >= 75000 && rawProg < 0.998) {
+      // Si lleva >= 35s al 0% con 0 semillas conectadas (o >= 75s estancado a mitad), saltar al siguiente candidato
+      const stallThresholdMs = rawProg === 0 && (tor.num_seeds || 0) === 0 ? 35000 : 75000;
+      if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
         this.stalledTracker.delete(stallKey);
         logger.warn('QBIT', 'torrent.stalled_switch', `Torrent estancado (${pct}% sin semillas activas). Cambiando al siguiente candidato...`, {
           episodeId: ep.id,
@@ -902,16 +988,53 @@ export class SebiEngine {
       const movieFile = selectMovieFileFromTorrent(files);
       if (!movieFile) continue;
 
-      const pct = Math.min(100, Math.round((movieFile.progress || 0) * 1000) / 10);
+      const rawProg = movieFile.progress || 0;
+      const pct = rawProg >= 1 ? 100 : Math.min(99.9, Math.floor(rawProg * 1000) / 10);
+      const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
+      const stallKey = `mov:${movie.id}:${movie.torrent_hash}`;
+      if (tor.state === 'stalledDL' && (tor.dlspeed || 0) === 0) {
+        if (!this.stalledTracker.has(stallKey)) this.stalledTracker.set(stallKey, Date.now());
+      } else {
+        this.stalledTracker.delete(stallKey);
+      }
+      const stalledElapsedMs = this.stalledTracker.has(stallKey)
+        ? Date.now() - this.stalledTracker.get(stallKey)
+        : 0;
+
+      const readyNearComplete =
+        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && stalledElapsedMs >= 20000);
+
+      if (rawProg >= 1 || readyNearComplete) {
+        this.stalledTracker.delete(stallKey);
+        await this.#finalizeMovieDownload(movie, movieFile, cfg);
+        continue;
+      }
+
+      const stallThresholdMs = rawProg === 0 && (tor.num_seeds || 0) === 0 ? 35000 : 75000;
+      if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
+        this.stalledTracker.delete(stallKey);
+        logger.warn('QBIT', 'movie.stalled_switch', `Película estancada (${pct}% sin semillas activas). Cambiando al siguiente candidato...`, {
+          itemId: movie.id,
+          hash: movie.torrent_hash,
+        });
+        const rejected = JSON.parse(movie.rejected_hashes_json || '[]');
+        rejected.push(movie.torrent_hash.toLowerCase());
+        const oldHash = movie.torrent_hash;
+        this.db.updateMovieDownloadState(movie.id, {
+          status: 'virtual',
+          torrentHash: null,
+          rejectedHashesJson: JSON.stringify(rejected),
+        });
+        await this.qbit.deleteTorrent(oldHash, true).catch(() => {});
+        await this.requestMovieDownload(movie.tmdb_id, { pin: Boolean(movie.pinned) });
+        continue;
+      }
+
       this.db.updateMovieDownloadState(movie.id, {
         progress: pct,
         downloadSpeed: tor.dlspeed || 0,
-        statusMessage: `Descargando ${pct.toFixed(0)}%`,
+        statusMessage: `Descargando ${Math.floor(rawProg * 100)}%`,
       });
-
-      if ((movieFile.progress || 0) >= 1) {
-        await this.#finalizeMovieDownload(movie, movieFile, cfg);
-      }
     }
   }
 
@@ -1101,7 +1224,30 @@ export class SebiEngine {
     let streams = [];
     try {
       streams = await probeMediaStreams(srcPath);
-    } catch {
+      if (!streams || !streams.some((s) => s.codec_type === 'video')) {
+        throw new Error('El contenedor de vídeo no tiene pista de vídeo legible (cabecera incompleta).');
+      }
+    } catch (probeErr) {
+      if (probeErr?.code !== 'ENOENT') {
+        logger.warn(
+          'MEDIA',
+          'movie.corrupt_file',
+          `Película descargada corrupta o con cabecera incompleta (${probeErr.message}). Descartando y probando siguiente candidato...`,
+          { itemId: movie.id, rejectedHash: movie.torrent_hash, srcPath }
+        );
+        const rejected = JSON.parse(movie.rejected_hashes_json || '[]');
+        if (movie.torrent_hash) rejected.push(movie.torrent_hash.toLowerCase());
+        const hashToClean = movie.torrent_hash;
+        this.db.updateMovieDownloadState(movie.id, {
+          status: 'virtual',
+          statusMessage: 'Torrent parcial descartado; probando alternativa...',
+          torrentHash: null,
+          rejectedHashesJson: JSON.stringify(rejected),
+        });
+        if (hashToClean) await this.qbit.deleteTorrent(hashToClean, true).catch(() => {});
+        await this.requestMovieDownload(movie.tmdb_id, { pin: Boolean(movie.pinned) });
+        return;
+      }
       streams = [];
     }
 
@@ -1129,13 +1275,22 @@ export class SebiEngine {
       }
 
       if (!evalResult.valid) {
+        logger.warn('MEDIA', 'movie.stream_rejected', `Película descartada tras ffprobe (${evalResult.reason}). Reintentando con siguiente candidato...`, {
+          itemId: movie.id,
+          rejectedHash: movie.torrent_hash,
+          reason: evalResult.reason,
+        });
+        const rejected = JSON.parse(movie.rejected_hashes_json || '[]');
+        if (movie.torrent_hash) rejected.push(movie.torrent_hash.toLowerCase());
         const hashToClean = movie.torrent_hash;
         this.db.updateMovieDownloadState(movie.id, {
-          status: 'error',
+          status: 'virtual',
           statusMessage: evalResult.reason,
           torrentHash: null,
+          rejectedHashesJson: JSON.stringify(rejected),
         });
         if (hashToClean) await this.qbit.deleteTorrent(hashToClean, true).catch(() => {});
+        await this.requestMovieDownload(movie.tmdb_id, { pin: Boolean(movie.pinned) });
         return;
       }
 
@@ -1169,6 +1324,11 @@ export class SebiEngine {
       progress: 100,
       downloadSpeed: 0,
       filePath: destPath,
+    });
+
+    logger.success('ENGINE', 'movie.available', `Película lista para reproducir: ${destPath}`, {
+      itemId: movie.id,
+      destPath,
     });
 
     await this.jellyfin.notifyMediaUpdated(destPath, 'Created');

@@ -216,9 +216,10 @@ export class CatalogService {
     const searchTitleSet = new Set();
     const pushClean = (val) => {
       if (val && typeof val === 'string' && val.trim().length >= 2) {
-        // Descartar alfabetos puramente japoneses/chinos para trackers occidentales salvo que sea el único
-        if (!/^[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\s\d\p{P}]+$/u.test(val.trim())) {
-          searchTitleSet.add(val.trim());
+        const trimmed = val.trim();
+        // Descartar cadenas con kana/kanji/hangul/cirílico para no ensuciar consultas occidentales
+        if (!/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\u0400-\u04ff]/u.test(trimmed)) {
+          searchTitleSet.add(trimmed);
         }
       }
     };
@@ -229,27 +230,38 @@ export class CatalogService {
 
     const altList = data.alternative_titles?.titles || data.alternative_titles?.results || [];
     for (const alt of altList) {
-      if (['ES', 'US', 'GB', 'JP'].includes(alt.iso_3166_1)) {
-        // Ignorar subtítulos específicos de arcos/temporadas posteriores (ej. "Jujutsu Kaisen: Shimetsu Kaiyuu - Zenpen")
-        if (alt.title && !/[:\-–]/.test(alt.title)) {
+      if (['ES', 'US', 'GB', 'JP'].includes(alt.iso_3166_1) && alt.title) {
+        if (type === 'tv') {
+          // En series, ignorar subtítulos específicos de arcos/especiales posteriores (ej. "Memories", "Shimetsu Kaiyuu")
+          if (!/[:\-–]/.test(alt.title) && !/\b(memories|more|recap|special)\b/i.test(alt.title)) {
+            pushClean(alt.title);
+          }
+        } else if (alt.title.trim().split(/\s+/).length >= 2) {
+          // En películas, evitar alias sueltos de 1 palabra (ej. "Hierro" en Iron Man) que causan falsos positivos
           pushClean(alt.title);
         }
       }
     }
 
-    // Si es anime, enriquecemos con los títulos Romaji e Inglés exactos de AniList (clave para Erai-raws / Nyaa / ext.to)
+    // Si es anime, enriquecemos con los títulos Romaji e Inglés exactos de AniList respetando formato (TV vs MOVIE) y año
     let anilistId = null;
     if (isAnime) {
-      const aniMatches = await this.queryAniListSearch(enTitle || title, 3);
-      const match =
-        aniMatches.find((m) => !year || !m.seasonYear || Math.abs(m.seasonYear - year) <= 1) || aniMatches[0];
+      const aniMatches = await this.queryAniListSearch(enTitle || title, 8);
+      const match = aniMatches.find((m) => {
+        if (type === 'movie' && m.format !== 'MOVIE') return false;
+        if (type === 'tv' && m.format === 'MOVIE') return false;
+        if (year && m.seasonYear && Math.abs(m.seasonYear - year) > (type === 'movie' ? 1 : 2)) return false;
+        return true;
+      });
       if (match) {
         anilistId = match.id;
         // Para Anime, Romaji e Inglés van primero porque así nombran los releases Erai-raws y ToonsHub
         const animePriority = new Set();
         if (match.title?.romaji) animePriority.add(match.title.romaji.trim());
         if (match.title?.english) animePriority.add(match.title.english.trim());
-        for (const s of match.synonyms || []) pushClean(s);
+        for (const s of match.synonyms || []) {
+          if (type === 'tv' || s.trim().split(/\s+/).length >= 2) pushClean(s);
+        }
         for (const existing of searchTitleSet) animePriority.add(existing);
         searchTitleSet.clear();
         for (const item of animePriority) searchTitleSet.add(item);
@@ -260,6 +272,7 @@ export class CatalogService {
 
     const seasons = [];
     const episodes = [];
+    let relatedMovies = [];
 
     if (type === 'tv' && Array.isArray(data.seasons)) {
       const validSeasons = data.seasons.filter((s) => s.season_number >= 0 && (s.episode_count || 0) > 0);
@@ -270,6 +283,7 @@ export class CatalogService {
         return a.season_number - b.season_number;
       });
 
+      const todayIso = new Date().toISOString().slice(0, 10);
       let absCounter = 1;
       for (const s of sortedSeasons) {
         let seasonDetail = null;
@@ -278,9 +292,54 @@ export class CatalogService {
         } catch {
           continue;
         }
+
+        let rawEps = seasonDetail.episodes || [];
+
+        if (s.season_number === 0) {
+          // Rellenar títulos genéricos ("Episodio 5") con el nombre oficial en inglés/japonés
+          const hasGeneric = rawEps.some((ep) => !ep.name || /^(?:episodio|episode)\s*\d+$/i.test(ep.name.trim()));
+          if (hasGeneric) {
+            try {
+              const enSeason0 = await this.#tmdbFetch(`/tv/${tmdbId}/season/0`, { language: 'en-US' });
+              const enMap = new Map((enSeason0.episodes || []).map((e) => [e.episode_number, e]));
+              rawEps = rawEps.map((ep) => {
+                const enEp = enMap.get(ep.episode_number);
+                const needsName = !ep.name || /^(?:episodio|episode)\s*\d+$/i.test(ep.name.trim());
+                return {
+                  ...ep,
+                  name: needsName && enEp?.name ? enEp.name : ep.name,
+                  overview: ep.overview || enEp?.overview || '',
+                };
+              });
+            } catch {
+              // Ignorar fallback inglés
+            }
+          }
+
+          // Filtrar clips promocionales/making-of de YouTube que ensucian Season 00
+          rawEps = rawEps.filter((ep) => {
+            const epName = String(ep.name || '');
+            const epDesc = String(ep.overview || '');
+            if (ep.air_date && ep.air_date > todayIso) return false;
+            if (
+              /\b(making[\s-]*of|behind\s+the|inside\s+the\s+episode|featurette|cast\s+interview|trailer|teaser|promo\b|preview\b)/i.test(
+                `${epName} ${epDesc}`
+              )
+            ) {
+              return false;
+            }
+            if (!isAnime && ep.runtime && ep.runtime > 0 && ep.runtime < 14) return false;
+            return true;
+          });
+
+          if (rawEps.length === 0) continue;
+        }
+
         const seasonTitle =
           s.season_number === 0
-            ? 'Especiales / OVAs y Películas'
+            ? isAnime
+              ? 'OVAs y Especiales'
+              : 'Especiales'
             : seasonDetail.name || s.name || `Temporada ${s.season_number}`;
 
         seasons.push({
@@ -288,10 +347,10 @@ export class CatalogService {
           title: seasonTitle,
           overview: seasonDetail.overview || s.overview || '',
           posterUrl: tmdbImage(seasonDetail.poster_path || s.poster_path, 'w342'),
-          episodeCount: (seasonDetail.episodes || []).length,
+          episodeCount: rawEps.length,
         });
 
-        for (const ep of seasonDetail.episodes || []) {
+        for (const ep of rawEps) {
           const isSpecial = s.season_number === 0;
           episodes.push({
             seasonNumber: s.season_number,
@@ -304,6 +363,43 @@ export class CatalogService {
             stillUrl: tmdbImage(ep.still_path, 'w300'),
           });
         }
+      }
+
+      // Buscar películas oficiales de la misma franquicia/saga (especialmente útil en Anime)
+      try {
+        const baseName = title.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+        const movSearch = await this.#tmdbFetch('/search/movie', {
+          language: 'es-ES',
+          query: baseName,
+          include_adult: 'false',
+          page: 1,
+        });
+        const normBase = baseName
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase();
+        const normEn = (enTitle || baseName)
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase();
+
+        relatedMovies = (movSearch.results || [])
+          .filter((m) => {
+            if (!m.poster_path) return false;
+            if (isAnime && !isAnimeHeuristic({ genreIds: m.genre_ids || [], originalLanguage: m.original_language })) {
+              return false;
+            }
+            const mt = `${m.title || ''} ${m.original_title || ''}`
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase();
+            return mt.includes(normBase) || mt.includes(normEn);
+          })
+          .slice(0, 8)
+          .map((m) => this.#normalizeCard(m, 'movie'))
+          .filter(Boolean);
+      } catch {
+        relatedMovies = [];
       }
     }
 
@@ -328,6 +424,7 @@ export class CatalogService {
         : '🇪🇸 Audio Español Castellano (Sin subtítulos)',
       seasons,
       episodes,
+      relatedMovies,
     };
   }
 }

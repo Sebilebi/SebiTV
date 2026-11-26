@@ -67,15 +67,19 @@ export function inspectReleaseLanguages(rawTitle = '') {
   const hasPtFlag = t.includes('🇵🇹') || t.includes('🇧🇷');
   const hasRuFlag = t.includes('🇷🇺');
 
+  const filenamePart = t.split('|')[0] || t;
+  const hasFilenameSpaAudio = /\b(multi|dual|\bspa\b|\besp\b|spanish|castellano)\b/i.test(filenamePart);
+
   const hasVerifiedCastellano =
     /\b(castellano|espa[ñn]ol\s+de\s+espa[ñn]a|es-es|dontorrent|mejortorrent|wolfmax\w*|atomohd|pctnew|newpct|pctmix|selecta[\s._-]*visi[oó]n|eth@n|bryan_122|mony2007)\b/i.test(
       t
     );
 
-  // En releases AMZN/NF WEB-DL (ej. FLUX/Rapta), Torrentio lista 20+ banderas de subtítulos sin "Multi Audio"/"Dual Audio"
+  // En releases AMZN/NF WEB-DL (ej. FLUX/Rapta), Torrentio lista 15-26 banderas de subtítulos sin "Multi Audio" ni "Spa" en el nombre
   const flagsAreSubtitlesOnly =
-    flagCount >= 6 &&
+    flagCount >= 10 &&
     !/\b(multi[\s._-]*audio|dual[\s._-]*audio)\b/i.test(t) &&
+    !hasFilenameSpaAudio &&
     !hasVerifiedCastellano;
 
   const isVoseOnly =
@@ -85,18 +89,24 @@ export function inspectReleaseLanguages(rawTitle = '') {
 
   const hasExplicitLatino =
     hasMxFlag ||
-    /\b(latino|latam|es-la|es-419|audio[\s._-]*latino|cinecalidad|dual[\s._-]*yg)\b/i.test(t) ||
+    /\b(latino|latam|es-la|es-419|spa-la|dual[\s._-]*lat|audio[\s._-]*latino|cinecalidad|pelisenhd|hackstore|megapeliculas\w*|somosmovies|yaske|dual[\s._-]*yg)\b/i.test(
+      t
+    ) ||
     /\.yg(?:\b|⭐|\s|$)/i.test(t);
+
+  const hasBothSpaVariants =
+    hasExplicitLatino && (hasVerifiedCastellano || (/\bspa-la\b/i.test(t) && /\[spa\]/i.test(t)));
 
   const hasExplicitCastellano =
     hasVerifiedCastellano ||
+    hasBothSpaVariants ||
     (hasEsFlag && !flagsAreSubtitlesOnly && !hasExplicitLatino) ||
     (!isVoseOnly &&
       !hasExplicitLatino &&
       !flagsAreSubtitlesOnly &&
-      /\b(spanish|espa[ñn]ol|\besp\b|dual[\s._-]*(?:esp|cast|spa))\b/i.test(t));
+      /\b(spanish|espa[ñn]ol|\besp\b|\bspa\b|dual[\s._-]*(?:esp|cast|spa))\b/i.test(t));
 
-  const isFrenchOnlyMulti = /\b(truefrench|vff|vfi|vostfr)\b/i.test(t) && !hasEsFlag && !/\b(castellano|spanish|espa[ñn]ol)\b/i.test(t);
+  const isFrenchOnlyMulti = /\b(truefrench|vff|vfi|vostfr)\b/i.test(t) && !hasEsFlag && !/\b(castellano|spanish|espa[ñn]ol|\bspa\b)\b/i.test(t);
 
   const hasMultiSub =
     (flagsAreSubtitlesOnly && hasEsFlag) ||
@@ -113,8 +123,9 @@ export function inspectReleaseLanguages(rawTitle = '') {
     );
 
   const hasMultiAudio =
-    /\b(multi[\s._-]*audio|dual[\s._-]*audio|\bdual\b|\bmulti\b)\b/i.test(t) &&
-    !/\b(multisub|multi-subs|multi[\s._-]*sub)\b/i.test(t);
+    (/\b(multi[\s._-]*audio|dual[\s._-]*audio|\bdual\b|\bmulti\b)\b/i.test(t) &&
+      !/\b(multisub|multi-subs|multi[\s._-]*sub)\b/i.test(t)) ||
+    (hasFilenameSpaAudio && flagCount >= 3 && !flagsAreSubtitlesOnly);
 
   const hasEngDubOnly = /\b(eng(?:lish)?[\s._-]*dub(?:[\s._-]*only)?|dubbed[\s._-]*only)\b/i.test(t);
   const hasJapaneseAudio =

@@ -192,7 +192,7 @@ export function parseTorrentioStreams(streams = []) {
       sizeBytes: parseSizeToBytes(sizeStr),
       sizeStr,
       filesCount: 1,
-      seeders: Math.max(seeders, 1), // Torrentio solo indexa torrents conocidos por infoHash
+      seeders: seedMatch ? Math.max(seeders, 0) : 1, // Si Torrentio reporta explícitamente 👤 0, conservar 0 para no atascarse
       leechers: 0,
       magnet: buildMagnetFromHash(infoHash, rawDesc.split('\n')[0] || infoHash, extraTrackers),
       infoHash,

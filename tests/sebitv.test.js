@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { parseExtSearchHtml, parseNyaaRssXml } from '../src/indexers.js';
+import { parseExtSearchHtml, parseNyaaRssXml, parseTorrentioStreams } from '../src/indexers.js';
 import { scoreAndFilterCandidates, selectEpisodeFileFromTorrent } from '../src/scorer.js';
 import { evaluateMediaStreams } from '../src/media.js';
 import { computeSlidingWindowActions } from '../src/engine.js';
@@ -389,4 +389,139 @@ test('Series AMZN/NF (ej. Fallout / ESDLA): descarta falsos positivos MultiSub d
     allLanguages: false,
   });
   assert.equal(rankedEsdla.length, 1);
+});
+
+test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), OVAs S00, Películas de saga y MultiAudio SGF', () => {
+  // 1. Torrentio con 👤 0 mantiene 0 semillas (no se convierte artificialmente en 1)
+  const zeroSeedParsed = parseTorrentioStreams([
+    {
+      infoHash: '1111111111111111111111111111111111111111',
+      name: 'Torrentio HDTV',
+      title: 'Black.Mirror.3x04.HDTV.avi\n👤 0 💾 700 MB ⚙️ MejorTorrent | 🇪🇸',
+    },
+  ]);
+  assert.equal(zeroSeedParsed[0].seeders, 0);
+
+  // 2. My Hero Academia S01E06 NO debe confundirse con "Final Season - 06", "2nd Season - 06" ni "Vigilantes"
+  const mhaS1Pool = [
+    { title: '[Erai-raws] Boku no Hero Academia Final Season - 06 [1080p][MultiSub]', seeders: 45, sizeBytes: 1.3e9 },
+    { title: '[Erai-raws] Boku no Hero Academia 2nd Season - 06 [1080p][MultiSub]', seeders: 30, sizeBytes: 1.3e9 },
+    { title: '[Erai-raws] Vigilante: Boku no Hero Academia Illegals - 06 [1080p][MultiSub]', seeders: 35, sizeBytes: 1.3e9 },
+    { title: '[Erai-raws] Boku no Hero Academia - 06 [1080p][Multiple Subtitle].mkv', seeders: 20, sizeBytes: 1.3e9 },
+  ];
+  const mhaS1Ranked = scoreAndFilterCandidates(mhaS1Pool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['My Hero Academia', 'Boku no Hero Academia'],
+    seasonNumber: 1,
+    episodeNumber: 6,
+    absNumber: 6,
+    totalRegularSeasons: 8,
+  });
+  assert.equal(mhaS1Ranked.length, 1);
+  assert.equal(mhaS1Ranked[0].title, '[Erai-raws] Boku no Hero Academia - 06 [1080p][Multiple Subtitle].mkv');
+
+  // 3. Temporada 4 Cap 10 (abs 73): rechaza "- 10" sin temporada, acepta "4th Season - 10"
+  const mhaS4Pool = [
+    { title: '[Erai-raws] Boku no Hero Academia - 10 [1080p][MultiSub]', seeders: 25, sizeBytes: 1.3e9 },
+    { title: '[Erai-raws] Boku no Hero Academia 4th Season - 10 [1080p][MultiSub]', seeders: 15, sizeBytes: 1.3e9 },
+  ];
+  const mhaS4Ranked = scoreAndFilterCandidates(mhaS4Pool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['My Hero Academia', 'Boku no Hero Academia'],
+    seasonNumber: 4,
+    episodeNumber: 10,
+    absNumber: 73,
+    totalRegularSeasons: 8,
+  });
+  assert.equal(mhaS4Ranked.length, 1);
+  assert.match(mhaS4Ranked[0].title, /4th Season - 10/);
+
+  // 4. OVA S00E01: rechaza "Final Season - 01" y acepta OVA real
+  const mhaOvaPool = [
+    { title: '[Erai-raws] Boku no Hero Academia Final Season - 01 [1080p][MultiSub]', seeders: 50, sizeBytes: 1.3e9 },
+    { title: '[Subs] Boku no Hero Academia OVA 01 - Save! Rescue Training! [1080p][MultiSub]', seeders: 12, sizeBytes: 800e6 },
+  ];
+  const mhaOvaRanked = scoreAndFilterCandidates(mhaOvaPool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['My Hero Academia', 'Boku no Hero Academia'],
+    seasonNumber: 0,
+    episodeNumber: 1,
+    totalRegularSeasons: 8,
+    episodeTitle: 'Save! Rescue Training!',
+  });
+  assert.equal(mhaOvaRanked.length, 1);
+  assert.match(mhaOvaRanked[0].title, /OVA 01/);
+
+  // 5. Películas de saga y comerciales: bloquea mezcla entre películas ("You're Next" en "Dos héroes") y episodios sueltos ("Hierro 08.mp4" en "Iron Man")
+  const mhaMovie1Pool = [
+    { title: "[Erai-raws] Boku no Hero Academia - You're Next - Movie [1080p][MultiSub]", seeders: 40, sizeBytes: 2e9 },
+    { title: '[Erai-raws] My Hero Academia - Two Heroes [1080p][MultiSub]', seeders: 18, sizeBytes: 2.4e9 },
+  ];
+  const mhaMovie1Ranked = scoreAndFilterCandidates(mhaMovie1Pool, {
+    isAnime: true,
+    mediaType: 'movie',
+    acceptedTitles: ['My Hero Academia: Dos héroes', 'My Hero Academia: Two Heroes', 'Boku no Hero Academia THE MOVIE: Futari no Hero'],
+    year: 2018,
+  });
+  assert.equal(mhaMovie1Ranked.length, 1);
+  assert.match(mhaMovie1Ranked[0].title, /Two Heroes/);
+
+  const ironManPool = [
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio — Hierro 08.mp4 | 👤 5 💾 280 MB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 5,
+      sizeBytes: 280_000_000,
+    },
+    {
+      source: 'imdb:Cinecalidad',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Iron Man (2008) Dual Audio | 👤 15 💾 2.1 GB ⚙️ Cinecalidad | 🇪🇸',
+      seeders: 15,
+      sizeBytes: 2.1e9,
+    },
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Iron Man (2008) [BluRay 1080p][Castellano] | 👤 12 💾 3.4 GB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 12,
+      sizeBytes: 3.4e9,
+    },
+  ];
+  const ironManRanked = scoreAndFilterCandidates(ironManPool, {
+    isAnime: false,
+    mediaType: 'movie',
+    acceptedTitles: ['Iron Man'],
+    year: 2008,
+    allLanguages: false,
+  });
+  assert.equal(ironManRanked.length, 1);
+  assert.match(ironManRanked[0].title, /Castellano/);
+
+  // 6. The Boys S03E07 SGF Multi-Audio europeo con "Spa" + 6 banderas se reconoce como 🇪🇸 Castellano
+  const boysPool = [
+    {
+      source: 'imdb:TorrentGalaxy',
+      matchedExactImdbEpisode: true,
+      hintFileIndex: 6,
+      title:
+        'Torrentio 4k — The.Boys.S03.Eng.Fre.Ger.Ita.Por.Spa.2160p.WEBMux.HEVC-SGF | The.Boys.S03E07.mkv | 👤 18 💾 14 GB ⚙️ TorrentGalaxy | 🇬🇧 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇫🇷 / 🇩🇪',
+      seeders: 18,
+      sizeBytes: 14e9,
+    },
+  ];
+  const boysRanked = scoreAndFilterCandidates(boysPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['The Boys'],
+    seasonNumber: 3,
+    episodeNumber: 7,
+    allLanguages: false,
+  });
+  assert.equal(boysRanked.length, 1);
+  assert.ok(boysRanked[0].languageBadges.includes('🇪🇸 Castellano'));
 });
