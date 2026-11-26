@@ -89,7 +89,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
     /\b(erai-raws|toonshub|nandesuka|multisub|multi-subs|multi[\s._-]*subs?|multiple[\s._-]*subtitle|multi[\s._-]*language)\b/i.test(
       t
     ) ||
-    (!isFrenchOnlyMulti && /\bmulti\b/i.test(t));
+    (!isFrenchOnlyMulti && /(?<![-\w])multi(?![-\w])/i.test(t));
 
   const hasSpanishSub =
     hasMultiSub ||

@@ -584,7 +584,7 @@ export class SebiEngine {
     }
 
     let lastErr = null;
-    for (const cand of candidates.slice(0, 4)) {
+    for (const cand of candidates.slice(0, 8)) {
       try {
         logger.info('QBIT', 'torrent.try_candidate', `Probando candidato "${cand.title}" (${cand.source}, ${cand.seeders} seeds)`, {
           episodeId: ep.id,
@@ -607,7 +607,7 @@ export class SebiEngine {
         const hash = resolved.infoHash;
         if (!hash) throw new Error('No se pudo determinar el infoHash del torrent añadido.');
 
-        const files = await this.qbit.waitForFilesMetadata(hash, 45000);
+        const files = await this.qbit.waitForFilesMetadata(hash, 22000);
         if (files.length === 0) {
           await this.qbit.deleteTorrent(hash, true);
           throw new Error('Tiempo agotado descargando metadatos del magnet (sin semillas activas).');
@@ -949,8 +949,37 @@ export class SebiEngine {
     let streams = [];
     try {
       streams = await probeMediaStreams(srcPath);
-    } catch {
-      // Si ffprobe no está en entorno local de test, asumir válido
+      if (!streams || !streams.some((s) => s.codec_type === 'video')) {
+        throw new Error('El contenedor de vídeo no tiene pista de vídeo legible (cabecera incompleta).');
+      }
+    } catch (probeErr) {
+      if (probeErr?.code !== 'ENOENT') {
+        logger.warn(
+          'MEDIA',
+          'episode.corrupt_file',
+          `Archivo descargado corrupto o con cabecera MKV incompleta (${probeErr.message}). Descartando torrent parcial y probando siguiente candidato...`,
+          {
+            episodeId: ep.id,
+            rejectedHash: ep.torrent_hash,
+            srcPath,
+          }
+        );
+        const rejected = JSON.parse(ep.rejected_hashes_json || '[]');
+        if (ep.torrent_hash) rejected.push(ep.torrent_hash.toLowerCase());
+        const hashToClean = ep.torrent_hash;
+        this.db.updateEpisodeState(ep.id, {
+          status: 'missing',
+          statusMessage: 'Torrent parcial descartado; probando alternativa...',
+          torrentHash: null,
+          torrentFileIndex: null,
+          rejectedHashesJson: JSON.stringify(rejected),
+        });
+        if (hashToClean && this.db.countOtherEpisodesUsingHash(hashToClean, ep.id) === 0) {
+          await this.qbit.deleteTorrent(hashToClean, true).catch(() => {});
+        }
+        await this.requestEpisodeDownload(ep.id, { pin: Boolean(ep.pinned) });
+        return;
+      }
       streams = [];
     }
 
