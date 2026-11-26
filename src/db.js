@@ -1,0 +1,364 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+
+export class SebiDatabase {
+  constructor(dbPath) {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    this.db = new DatabaseSync(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL;');
+    this.db.exec('PRAGMA foreign_keys = ON;');
+    this.#migrate();
+  }
+
+  #migrate() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS catalog_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tmdb_id INTEGER NOT NULL,
+        media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+        is_anime INTEGER NOT NULL DEFAULT 0,
+        anilist_id INTEGER,
+        imdb_id TEXT,
+        tvdb_id INTEGER,
+        title TEXT NOT NULL,
+        original_title TEXT,
+        search_titles_json TEXT NOT NULL DEFAULT '[]',
+        year INTEGER,
+        poster_url TEXT,
+        backdrop_url TEXT,
+        overview TEXT,
+        folder_path TEXT NOT NULL,
+        jellyfin_id TEXT,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'virtual',
+        status_message TEXT,
+        progress REAL NOT NULL DEFAULT 0,
+        download_speed INTEGER NOT NULL DEFAULT 0,
+        torrent_hash TEXT,
+        file_path TEXT,
+        watched_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (tmdb_id, media_type)
+      );
+
+      CREATE TABLE IF NOT EXISTS seasons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+        season_number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        overview TEXT,
+        poster_url TEXT,
+        episode_count INTEGER NOT NULL DEFAULT 0,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (item_id, season_number)
+      );
+
+      CREATE TABLE IF NOT EXISTS episodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+        season_number INTEGER NOT NULL,
+        episode_number INTEGER NOT NULL,
+        abs_number INTEGER,
+        is_special INTEGER NOT NULL DEFAULT 0,
+        title TEXT NOT NULL,
+        overview TEXT,
+        air_date TEXT,
+        still_url TEXT,
+        status TEXT NOT NULL DEFAULT 'missing',
+        status_message TEXT,
+        progress REAL NOT NULL DEFAULT 0,
+        download_speed INTEGER NOT NULL DEFAULT 0,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        torrent_hash TEXT,
+        torrent_file_index INTEGER,
+        torrent_is_pack INTEGER NOT NULL DEFAULT 0,
+        rejected_hashes_json TEXT NOT NULL DEFAULT '[]',
+        file_path TEXT,
+        jellyfin_episode_id TEXT,
+        watched INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (item_id, season_number, episode_number)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_episodes_item_seq ON episodes(item_id, is_special, season_number, episode_number);
+      CREATE INDEX IF NOT EXISTS idx_episodes_status ON episodes(status);
+      CREATE INDEX IF NOT EXISTS idx_episodes_hash ON episodes(torrent_hash);
+    `);
+  }
+
+  getSetting(key) {
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    return row ? row.value : undefined;
+  }
+
+  setSetting(key, value) {
+    this.db
+      .prepare(
+        `INSERT INTO settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+      )
+      .run(key, String(value ?? ''));
+  }
+
+  getAllSettings() {
+    const rows = this.db.prepare('SELECT key, value FROM settings').all();
+    const out = {};
+    for (const r of rows) out[r.key] = r.value;
+    return out;
+  }
+
+  upsertCatalogItem(item) {
+    this.db
+      .prepare(
+        `INSERT INTO catalog_items (
+          tmdb_id, media_type, is_anime, anilist_id, imdb_id, tvdb_id,
+          title, original_title, search_titles_json, year, poster_url, backdrop_url,
+          overview, folder_path, jellyfin_id, pinned, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(tmdb_id, media_type) DO UPDATE SET
+          is_anime = excluded.is_anime,
+          anilist_id = COALESCE(excluded.anilist_id, catalog_items.anilist_id),
+          imdb_id = COALESCE(excluded.imdb_id, catalog_items.imdb_id),
+          tvdb_id = COALESCE(excluded.tvdb_id, catalog_items.tvdb_id),
+          title = excluded.title,
+          original_title = excluded.original_title,
+          search_titles_json = excluded.search_titles_json,
+          year = excluded.year,
+          poster_url = excluded.poster_url,
+          backdrop_url = excluded.backdrop_url,
+          overview = excluded.overview,
+          folder_path = excluded.folder_path,
+          jellyfin_id = COALESCE(excluded.jellyfin_id, catalog_items.jellyfin_id),
+          updated_at = datetime('now')`
+      )
+      .run(
+        item.tmdbId,
+        item.mediaType,
+        item.isAnime ? 1 : 0,
+        item.anilistId ?? null,
+        item.imdbId ?? null,
+        item.tvdbId ?? null,
+        item.title,
+        item.originalTitle ?? null,
+        JSON.stringify(item.searchTitles || []),
+        item.year ?? null,
+        item.posterUrl ?? null,
+        item.backdropUrl ?? null,
+        item.overview ?? null,
+        item.folderPath,
+        item.jellyfinId ?? null,
+        item.pinned ? 1 : 0
+      );
+
+    return this.getCatalogItemByTmdb(item.tmdbId, item.mediaType);
+  }
+
+  getCatalogItemById(id) {
+    return this.db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id);
+  }
+
+  getCatalogItemByTmdb(tmdbId, mediaType) {
+    return this.db
+      .prepare('SELECT * FROM catalog_items WHERE tmdb_id = ? AND media_type = ?')
+      .get(tmdbId, mediaType);
+  }
+
+  getCatalogItemByFolderName(folderName) {
+    return this.db
+      .prepare('SELECT * FROM catalog_items WHERE folder_path LIKE ?')
+      .get(`%${folderName}`);
+  }
+
+  listCatalogItems() {
+    return this.db.prepare('SELECT * FROM catalog_items ORDER BY updated_at DESC').all();
+  }
+
+  updateMovieDownloadState(itemId, fields) {
+    const sets = ["updated_at = datetime('now')"];
+    const vals = [];
+    const map = {
+      status: 'status',
+      statusMessage: 'status_message',
+      progress: 'progress',
+      downloadSpeed: 'download_speed',
+      torrentHash: 'torrent_hash',
+      filePath: 'file_path',
+      jellyfinId: 'jellyfin_id',
+      pinned: 'pinned',
+      watchedAt: 'watched_at',
+    };
+    for (const [k, col] of Object.entries(map)) {
+      if (fields[k] !== undefined) {
+        sets.push(`${col} = ?`);
+        vals.push(k === 'pinned' ? (fields[k] ? 1 : 0) : fields[k]);
+      }
+    }
+    vals.push(itemId);
+    this.db.prepare(`UPDATE catalog_items SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+
+  upsertSeason(season) {
+    this.db
+      .prepare(
+        `INSERT INTO seasons (item_id, season_number, title, overview, poster_url, episode_count)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(item_id, season_number) DO UPDATE SET
+           title = excluded.title,
+           overview = excluded.overview,
+           poster_url = excluded.poster_url,
+           episode_count = excluded.episode_count`
+      )
+      .run(
+        season.itemId,
+        season.seasonNumber,
+        season.title,
+        season.overview ?? null,
+        season.posterUrl ?? null,
+        season.episodeCount ?? 0
+      );
+  }
+
+  getSeasonsByItem(itemId) {
+    return this.db
+      .prepare('SELECT * FROM seasons WHERE item_id = ? ORDER BY CASE WHEN season_number = 0 THEN 9999 ELSE season_number END ASC')
+      .all(itemId);
+  }
+
+  upsertEpisode(ep) {
+    this.db
+      .prepare(
+        `INSERT INTO episodes (
+          item_id, season_number, episode_number, abs_number, is_special,
+          title, overview, air_date, still_url, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(item_id, season_number, episode_number) DO UPDATE SET
+          abs_number = excluded.abs_number,
+          is_special = excluded.is_special,
+          title = excluded.title,
+          overview = excluded.overview,
+          air_date = excluded.air_date,
+          still_url = excluded.still_url,
+          updated_at = datetime('now')`
+      )
+      .run(
+        ep.itemId,
+        ep.seasonNumber,
+        ep.episodeNumber,
+        ep.absNumber ?? null,
+        ep.seasonNumber === 0 ? 1 : 0,
+        ep.title,
+        ep.overview ?? null,
+        ep.airDate ?? null,
+        ep.stillUrl ?? null
+      );
+  }
+
+  getEpisodesByItem(itemId) {
+    return this.db
+      .prepare('SELECT * FROM episodes WHERE item_id = ? ORDER BY season_number ASC, episode_number ASC')
+      .all(itemId);
+  }
+
+  getEpisodeById(id) {
+    return this.db.prepare('SELECT * FROM episodes WHERE id = ?').get(id);
+  }
+
+  getEpisodeByCoords(itemId, seasonNumber, episodeNumber) {
+    return this.db
+      .prepare('SELECT * FROM episodes WHERE item_id = ? AND season_number = ? AND episode_number = ?')
+      .get(itemId, seasonNumber, episodeNumber);
+  }
+
+  updateEpisodeState(episodeId, fields) {
+    const sets = ["updated_at = datetime('now')"];
+    const vals = [];
+    const map = {
+      status: 'status',
+      statusMessage: 'status_message',
+      progress: 'progress',
+      downloadSpeed: 'download_speed',
+      pinned: 'pinned',
+      torrentHash: 'torrent_hash',
+      torrentFileIndex: 'torrent_file_index',
+      torrentIsPack: 'torrent_is_pack',
+      rejectedHashesJson: 'rejected_hashes_json',
+      filePath: 'file_path',
+      jellyfinEpisodeId: 'jellyfin_episode_id',
+      watched: 'watched',
+    };
+    for (const [k, col] of Object.entries(map)) {
+      if (fields[k] !== undefined) {
+        sets.push(`${col} = ?`);
+        if (k === 'pinned' || k === 'torrentIsPack' || k === 'watched') {
+          vals.push(fields[k] ? 1 : 0);
+        } else {
+          vals.push(fields[k]);
+        }
+      }
+    }
+    vals.push(episodeId);
+    this.db.prepare(`UPDATE episodes SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+
+  setPinItem(itemId, pinned) {
+    const val = pinned ? 1 : 0;
+    this.db.prepare('UPDATE catalog_items SET pinned = ? WHERE id = ?').run(val, itemId);
+    this.db.prepare('UPDATE seasons SET pinned = ? WHERE item_id = ?').run(val, itemId);
+    this.db.prepare('UPDATE episodes SET pinned = ? WHERE item_id = ?').run(val, itemId);
+  }
+
+  setPinSeason(itemId, seasonNumber, pinned) {
+    const val = pinned ? 1 : 0;
+    this.db
+      .prepare('UPDATE seasons SET pinned = ? WHERE item_id = ? AND season_number = ?')
+      .run(val, itemId, seasonNumber);
+    this.db
+      .prepare('UPDATE episodes SET pinned = ? WHERE item_id = ? AND season_number = ?')
+      .run(val, itemId, seasonNumber);
+  }
+
+  isEpisodeEffectivelyPinned(episodeRow) {
+    if (!episodeRow) return false;
+    if (episodeRow.pinned) return true;
+    const item = this.getCatalogItemById(episodeRow.item_id);
+    if (item?.pinned) return true;
+    const season = this.db
+      .prepare('SELECT pinned FROM seasons WHERE item_id = ? AND season_number = ?')
+      .get(episodeRow.item_id, episodeRow.season_number);
+    return Boolean(season?.pinned);
+  }
+
+  getActiveEpisodeDownloads() {
+    return this.db
+      .prepare("SELECT * FROM episodes WHERE status IN ('searching', 'downloading', 'processing')")
+      .all();
+  }
+
+  getActiveMovieDownloads() {
+    return this.db
+      .prepare("SELECT * FROM catalog_items WHERE media_type = 'movie' AND status IN ('searching', 'downloading', 'processing')")
+      .all();
+  }
+
+  countOtherEpisodesUsingHash(torrentHash, excludeEpisodeId) {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS cnt FROM episodes
+         WHERE torrent_hash = ? AND id != ?
+           AND status IN ('downloading', 'processing', 'available')`
+      )
+      .get(torrentHash, excludeEpisodeId);
+    return row?.cnt || 0;
+  }
+
+  close() {
+    this.db.close();
+  }
+}

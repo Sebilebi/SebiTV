@@ -1,0 +1,117 @@
+services:
+  # Inicializador rápido (1 seg): crea carpetas con permisos 1000:1000,
+  # preconfigura qBittorrent sin pedir contraseña local y copia el plugin web de Jellyfin
+  sebitv-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sebitv-init
+    user: "0:0"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/Madrid}
+      - SEBITV_PORT=${SEBITV_PORT:-8099}
+      - SEBITV_PUBLIC_URL=${SEBITV_PUBLIC_URL:-}
+    volumes:
+      - /srv/media:/data
+    command: ["node", "src/init-stack.js"]
+    restart: "no"
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    restart: unless-stopped
+    depends_on:
+      sebitv-init:
+        condition: service_completed_successfully
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/Madrid}
+      - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    ports:
+      - "8080:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    volumes:
+      - /srv/media/appdata/qbittorrent:/config
+      - /srv/media:/data
+
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      sebitv-init:
+        condition: service_completed_successfully
+    ports:
+      - "8096:8096"
+    environment:
+      - TZ=${TZ:-Europe/Madrid}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+      - JELLYFIN_WEB_DIR=/cache/jellyfin-web-sebitv
+    volumes:
+      - /srv/media/appdata/jellyfin/config:/config
+      - /srv/media/appdata/jellyfin/cache:/cache
+      - /srv/media/library:/data/media
+      - /srv/media/appdata/sebitv/jellyfin-plugin:/sebitv-plugin:ro
+    entrypoint: ["/bin/sh", "/sebitv-plugin/jellyfin-entrypoint.sh"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, compute, utility, video]
+
+  sebitv:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sebitv
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      sebitv-init:
+        condition: service_completed_successfully
+      qbittorrent:
+        condition: service_started
+      jellyfin:
+        condition: service_started
+    ports:
+      - "${SEBITV_PORT:-8099}:8099"
+    environment:
+      - TZ=${TZ:-Europe/Madrid}
+      - SEBITV_PORT=8099
+      - SEBITV_PUBLIC_URL=${SEBITV_PUBLIC_URL:-}
+      - DATA_DIR=/config
+      - MEDIA_ROOT=/data/library
+      - JELLYFIN_MEDIA_ROOT=/data/media
+      - DOWNLOADS_ROOT=/data/downloads
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - JELLYFIN_URL=${JELLYFIN_URL:-http://jellyfin:8096}
+      - JELLYFIN_USER=${JELLYFIN_USER:-}
+      - JELLYFIN_PASS=${JELLYFIN_PASS:-}
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
+      - QBIT_URL=${QBIT_URL:-http://qbittorrent:8080}
+      - QBIT_USER=${QBIT_USER:-admin}
+      - QBIT_PASS=${QBIT_PASS:-}
+      - EXT_BASE_URL=${EXT_BASE_URL:-https://ext.to}
+      - EXT_COOKIE=${EXT_COOKIE:-}
+      - EXT_USER_AGENT=${EXT_USER_AGENT:-Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36}
+      - NYAA_ENABLED=${NYAA_ENABLED:-true}
+      - NYAA_BASE_URL=${NYAA_BASE_URL:-https://nyaa.si}
+      - PROWLARR_URL=${PROWLARR_URL:-}
+      - PROWLARR_API_KEY=${PROWLARR_API_KEY:-}
+      - SUBDL_API_KEY=${SUBDL_API_KEY:-}
+      - WINDOW_BEHIND=${WINDOW_BEHIND:-1}
+      - WINDOW_AHEAD=${WINDOW_AHEAD:-1}
+      - MOVIE_RETENTION_HOURS=${MOVIE_RETENTION_HOURS:-48}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-5}
+    volumes:
+      - /srv/media/appdata/sebitv/config:/config
+      - /srv/media:/data

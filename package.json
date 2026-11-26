@@ -1,0 +1,14 @@
+{
+  "name": "sebitv",
+  "version": "1.0.0",
+  "description": "Motor bajo demanda e interfaz integrada en Jellyfin con ventana deslizante [N-1, N, N+1] y filtrado estricto de idiomas",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "init-stack": "node src/init-stack.js",
+    "test": "node --test tests/*.test.js"
+  }
+}
