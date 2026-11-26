@@ -47,6 +47,7 @@ export function resolveRuntimeConfig(db) {
     ...base,
     tmdbApiKey: overrides.tmdbApiKey || base.tmdbApiKey,
     extCookie: overrides.extCookie || base.extCookie,
+    extUserAgent: overrides.extUserAgent || base.extUserAgent,
     extBaseUrl: (overrides.extBaseUrl || base.extBaseUrl).replace(/\/+$/, ''),
     prowlarrUrl: (overrides.prowlarrUrl || base.prowlarrUrl).replace(/\/+$/, ''),
     prowlarrApiKey: overrides.prowlarrApiKey || base.prowlarrApiKey,

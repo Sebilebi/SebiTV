@@ -106,6 +106,9 @@
         <span>⬇</span>
         <span id="sebitv-dl-count" class="sebitv-badge-count" style="display:none">0</span>
       </button>
+      <button class="sebitv-pill-btn secondary" id="sebitv-open-prefs" title="Preferencias de Idioma y Subtítulos">
+        <span>👤</span>
+      </button>
       <button class="sebitv-pill-btn secondary" id="sebitv-open-settings" title="Estado y ajustes de SebiTV">
         <span>⚙</span>
       </button>
@@ -114,6 +117,7 @@
 
     document.getElementById('sebitv-open-catalog').addEventListener('click', () => openOverlay('discover'));
     document.getElementById('sebitv-open-downloads').addEventListener('click', () => openOverlay('downloads'));
+    document.getElementById('sebitv-open-prefs').addEventListener('click', () => openOverlay('preferences'));
     document.getElementById('sebitv-open-settings').addEventListener('click', () => openOverlay('settings'));
   }
 
@@ -150,10 +154,11 @@
     overlay.style.display = 'flex';
     overlay.innerHTML = `
       <div class="sebitv-modal">
-        <div class="sebitv-modal-header">
+        <div class="sebitv-modal-header" style="flex-wrap:wrap;">
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-home">Catálogo</button>
           <input type="search" class="sebitv-search-input" id="sebitv-global-search" placeholder="Buscar película, serie o anime en todo el catálogo...">
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-dl">⬇ Descargas</button>
+          <button class="sebitv-pill-btn secondary" id="sebitv-nav-prefs">👤 Idiomas</button>
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-logs">📋 Logs</button>
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-cfg">⚙</button>
           <button class="sebitv-pill-btn danger" id="sebitv-close-modal">✕</button>
@@ -167,26 +172,35 @@
     document.getElementById('sebitv-close-modal').onclick = closeOverlay;
     document.getElementById('sebitv-nav-home').onclick = () => renderDiscoverInModal();
     document.getElementById('sebitv-nav-dl').onclick = () => renderDownloadsInModal();
+    document.getElementById('sebitv-nav-prefs').onclick = () => renderPreferencesInModal();
     document.getElementById('sebitv-nav-logs').onclick = () => renderLogsInModal();
     document.getElementById('sebitv-nav-cfg').onclick = () => renderSettingsInModal();
 
     const searchInput = document.getElementById('sebitv-global-search');
     let debounce = null;
+    const triggerModalSearch = () => {
+      const q = searchInput.value.trim();
+      if (q.length >= 2) {
+        uiLog('ui.search', `Búsqueda en catálogo: "${q}"`, { query: q });
+        renderSearchInModal(q);
+      } else if (q.length === 0) renderDiscoverInModal();
+    };
     searchInput.addEventListener('input', () => {
       clearTimeout(debounce);
-      debounce = setTimeout(() => {
-        const q = searchInput.value.trim();
-        if (q.length >= 2) {
-          uiLog('ui.search', `Búsqueda en catálogo: "${q}"`, { query: q });
-          renderSearchInModal(q);
-        } else if (q.length === 0) renderDiscoverInModal();
-      }, 350);
+      debounce = setTimeout(triggerModalSearch, 350);
+    });
+    searchInput.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        clearTimeout(debounce);
+        triggerModalSearch();
+      }
     });
 
     if (view === 'discover') await renderDiscoverInModal();
     else if (view === 'detail' && state.detailKey) {
       await renderItemDetailInModal(state.detailKey.mediaType, state.detailKey.tmdbId, state.detailKey.selectedSeason);
     } else if (view === 'downloads') await renderDownloadsInModal();
+    else if (view === 'preferences') await renderPreferencesInModal();
     else if (view === 'logs') await renderLogsInModal();
     else if (view === 'settings') await renderSettingsInModal();
   }
@@ -276,24 +290,38 @@
 
   function navigateToJellyfinItem(jellyfinId, { autoPlay = false } = {}) {
     closeOverlay();
-    // Jellyfin 12.4 usa "#/details?id=..." mientras que versiones antiguas usaban "#!/details?id=..."
-    const prefix = (window.location.hash || '').startsWith('#!/') ? '#!/' : '#/';
+    const currentHash = window.location.hash || '';
+    const alreadyOnTarget = currentHash.includes(`id=${jellyfinId}`);
+    const oldActivePage = alreadyOnTarget
+      ? null
+      : document.querySelector('.page.itemDetailPage:not(.hide), #itemDetailPage:not(.hide)');
+
+    const prefix = currentHash.startsWith('#!/') ? '#!/' : '#/';
     window.location.hash = `${prefix}details?id=${encodeURIComponent(jellyfinId)}`;
 
     if (autoPlay) {
       let attempts = 0;
-      const tryClickPlay = setInterval(() => {
-        attempts++;
-        const playBtn = document.querySelector(
-          '#itemDetailPage:not(.hide) .mainDetailButtons .btnPlay, .itemDetailPage:not(.hide) .btnPlay, .detailPagePrimaryContainer .btnPlay'
-        );
-        if (playBtn) {
-          clearInterval(tryClickPlay);
-          playBtn.click();
-        } else if (attempts >= 20) {
-          clearInterval(tryClickPlay);
-        }
-      }, 250);
+      setTimeout(() => {
+        const tryClickPlay = setInterval(() => {
+          attempts++;
+          const visiblePages = [
+            ...document.querySelectorAll('.page.itemDetailPage:not(.hide), #itemDetailPage:not(.hide)'),
+          ].filter((p) => p !== oldActivePage && p.offsetParent !== null);
+
+          for (const page of visiblePages) {
+            const btns = [...page.querySelectorAll('button.btnPlay')].filter((b) => b.offsetParent !== null);
+            if (btns.length > 0) {
+              clearInterval(tryClickPlay);
+              btns[0].click();
+              return;
+            }
+          }
+
+          if (attempts >= 24) {
+            clearInterval(tryClickPlay);
+          }
+        }, 250);
+      }, alreadyOnTarget ? 100 : 400);
     }
   }
 
@@ -799,56 +827,124 @@
   async function showCandidatePicker(kind, tmdbId, episodeId) {
     const slot = document.getElementById('sebitv-candidate-picker-slot');
     if (!slot) return;
-    slot.innerHTML = `<div class="sebitv-native-banner">🔎 Buscando torrents compatibles con tu regla de idioma...</div>`;
+    slot.innerHTML = `<div class="sebitv-native-banner">🔎 Explorando TODOS los idiomas, audios y subtítulos disponibles...</div>`;
     try {
       const endpoint =
-        kind === 'movie' ? `/api/candidates/movie/${tmdbId}` : `/api/candidates/episode/${episodeId}`;
+        kind === 'movie'
+          ? `/api/candidates/movie/${tmdbId}?allLanguages=1`
+          : `/api/candidates/episode/${episodeId}?allLanguages=1`;
       const { candidates } = await api(endpoint);
       if (!candidates || candidates.length === 0) {
-        slot.innerHTML = `<div class="sebitv-native-banner" style="border-color:var(--sebi-red)">No se encontraron torrents válidos para tu filtro de idioma.</div>`;
+        slot.innerHTML = `<div class="sebitv-native-banner" style="border-color:var(--sebi-red)">No se encontraron torrents con semillas activas en ningún idioma para este título.</div>`;
         return;
       }
-      slot.innerHTML = `
-        <div style="background:var(--sebi-surface);border:1px solid var(--sebi-accent);border-radius:10px;padding:12px;margin-bottom:14px;">
-          <div style="font-weight:700;margin-bottom:8px;">Elegir torrent manualmente (${candidates.length} compatibles)</div>
-          ${candidates
-            .slice(0, 8)
-            .map(
-              (c, idx) => `
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--sebi-border);font-size:12px;">
-                <div style="min-width:0;flex:1;">
-                  <div style="font-weight:600;word-break:break-word;">${esc(c.title)}</div>
-                  <div style="color:var(--sebi-muted);">${esc(c.source)} • ${esc(c.sizeStr || '')} • 🌱 ${
-                    c.seeders
-                  } semillas ${c.isPack ? '• 📦 Pack Temporada (descarga selectiva)' : ''}</div>
-                </div>
-                <button class="sebitv-pill-btn" data-pick-idx="${idx}">⬇ Usar</button>
-              </div>
-            `
-            )
-            .join('')}
-        </div>
-      `;
-      slot.querySelectorAll('[data-pick-idx]').forEach((b) => {
-        b.onclick = async () => {
-          const chosen = candidates[Number(b.getAttribute('data-pick-idx'))];
-          b.disabled = true;
-          b.textContent = '⏳ Añadiendo...';
-          if (kind === 'movie') {
-            await api('/api/download/movie', {
-              method: 'POST',
-              body: JSON.stringify({ tmdbId, candidate: chosen }),
-            });
-            await renderItemDetailInModal('movie', tmdbId, null, true);
-          } else {
-            await api('/api/download/episode', {
-              method: 'POST',
-              body: JSON.stringify({ episodeId, candidate: chosen }),
-            });
-            await renderItemDetailInModal('tv', tmdbId, state.detailKey?.selectedSeason, true);
-          }
+
+      const filters = [
+        { id: 'all', label: 'Todos los idiomas' },
+        { id: 'Castellano', label: '🇪🇸 Castellano' },
+        { id: 'Latino', label: '🇲🇽 Latino' },
+        { id: 'Japonés', label: '🇯🇵 Japonés' },
+        { id: 'Inglés', label: '🇬🇧 Inglés' },
+        { id: 'Sub Español', label: '💬 Sub Español' },
+        { id: 'MultiSub', label: '💬 MultiSub' },
+      ];
+
+      const renderFiltered = (activeFilter = 'all') => {
+        const filtered =
+          activeFilter === 'all'
+            ? candidates
+            : candidates.filter((c) =>
+                (c.languageBadges || []).some((b) => b.toLowerCase().includes(activeFilter.toLowerCase()))
+              );
+
+        slot.innerHTML = `
+          <div style="background:var(--sebi-surface);border:1px solid var(--sebi-accent);border-radius:12px;padding:14px;margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+              <div style="font-weight:700;">🔍 Lupa Multi-Idioma (${filtered.length} de ${candidates.length} versiones encontradas)</div>
+              <button class="sebitv-pill-btn secondary" id="sebitv-close-lupa" style="padding:4px 10px;font-size:11px;">Cerrar lupa ✕</button>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+              ${filters
+                .map(
+                  (f) =>
+                    `<button class="sebitv-pill-btn ${activeFilter === f.id ? '' : 'secondary'}" data-lupa-filter="${esc(
+                      f.id
+                    )}" style="padding:5px 11px;font-size:12px;">${esc(f.label)}</button>`
+                )
+                .join('')}
+            </div>
+            <div style="max-height:380px;overflow-y:auto;padding-right:4px;">
+              ${
+                filtered.length === 0
+                  ? '<div style="padding:14px;color:var(--sebi-muted);font-size:13px;">No hay torrents con ese filtro concreto. Prueba con otro filtro arriba.</div>'
+                  : filtered
+                      .slice(0, 35)
+                      .map((c) => {
+                        const origIdx = candidates.indexOf(c);
+                        return `
+                          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--sebi-border);font-size:12px;">
+                            <div style="min-width:0;flex:1;">
+                              <div style="font-weight:600;word-break:break-word;margin-bottom:4px;">${esc(c.title)}</div>
+                              <div>
+                                <span class="sebitv-lang-chip" style="background:rgba(46,204,113,0.16);color:#6ef3a5;border-color:rgba(46,204,113,0.35);">${esc(
+                                  c.resolution || 'HD'
+                                )}</span>
+                                ${(c.languageBadges || [])
+                                  .map((b) => `<span class="sebitv-lang-chip">${esc(b)}</span>`)
+                                  .join('')}
+                              </div>
+                              <div style="color:var(--sebi-muted);margin-top:3px;">${esc(c.source)} ${
+                                c.sizeStr ? `• ${esc(c.sizeStr)}` : ''
+                              } • 🌱 ${c.seeders} semillas ${
+                                c.isPack ? '• 📦 Pack (descarga solo este capítulo)' : ''
+                              }</div>
+                            </div>
+                            <button class="sebitv-pill-btn" data-pick-idx="${origIdx}">⬇ Descargar</button>
+                          </div>
+                        `;
+                      })
+                      .join('')
+              }
+            </div>
+          </div>
+        `;
+
+        slot.querySelector('#sebitv-close-lupa').onclick = () => {
+          slot.innerHTML = '';
         };
-      });
+        slot.querySelectorAll('[data-lupa-filter]').forEach((fb) => {
+          fb.onclick = () => renderFiltered(fb.getAttribute('data-lupa-filter'));
+        });
+        slot.querySelectorAll('[data-pick-idx]').forEach((b) => {
+          b.onclick = async () => {
+            const chosen = candidates[Number(b.getAttribute('data-pick-idx'))];
+            uiLog('ui.lupa_select_candidate', `Eligió manualmente desde Lupa: "${chosen.title}"`, {
+              kind,
+              tmdbId,
+              episodeId,
+              languages: chosen.languageBadges,
+              source: chosen.source,
+            });
+            b.disabled = true;
+            b.textContent = '⏳ Añadiendo...';
+            if (kind === 'movie') {
+              await api('/api/download/movie', {
+                method: 'POST',
+                body: JSON.stringify({ tmdbId, candidate: chosen }),
+              });
+              await renderItemDetailInModal('movie', tmdbId, null, true);
+            } else {
+              await api('/api/download/episode', {
+                method: 'POST',
+                body: JSON.stringify({ episodeId, candidate: chosen }),
+              });
+              await renderItemDetailInModal('tv', tmdbId, state.detailKey?.selectedSeason, true);
+            }
+          };
+        });
+      };
+
+      renderFiltered('all');
     } catch (err) {
       slot.innerHTML = `<div class="sebitv-native-banner" style="color:var(--sebi-red)">${esc(err.message)}</div>`;
     }
@@ -908,6 +1004,146 @@
     }
   }
 
+  async function renderPreferencesInModal() {
+    state.currentView = 'preferences';
+    const body = document.getElementById('sebitv-modal-body');
+    if (!body) return;
+
+    const audioOpts = [
+      { v: 'ja', l: '🇯🇵 Japonés (Audio Original Anime)' },
+      { v: 'es-ES', l: '🇪🇸 Español de España (Castellano)' },
+      { v: 'es-419', l: '🇲🇽 Español Latino' },
+      { v: 'en', l: '🇬🇧 Inglés (Versión Original)' },
+      { v: 'any', l: '🔓 Cualquier idioma disponible' },
+      { v: 'none', l: '— Ninguno (No aceptar otro)' },
+    ];
+
+    const subOpts = [
+      { v: 'off', l: '🚫 Desactivados (Sin subtítulos)' },
+      { v: 'es-ES', l: '🇪🇸 Español de España (Castellano)' },
+      { v: 'es-419', l: '🇲🇽 Español Latino' },
+      { v: 'en', l: '🇬🇧 Inglés' },
+      { v: 'any', l: '🔓 Cualquiera / Opcional' },
+      { v: 'none', l: '— Ninguno (No aceptar otro)' },
+    ];
+
+    const buildSelect = (id, list, currentVal, disallowNone = false) => `
+      <select class="sebitv-select" id="${id}">
+        ${list
+          .filter((o) => !(disallowNone && o.v === 'none'))
+          .map((o) => `<option value="${esc(o.v)}" ${o.v === currentVal ? 'selected' : ''}>${esc(o.l)}</option>`)
+          .join('')}
+      </select>
+    `;
+
+    try {
+      const { preferences } = await api('/api/preferences');
+      const an = preferences.anime || {};
+      const rg = preferences.regular || {};
+
+      body.innerHTML = `
+        <div class="sebitv-section-title">Preferencias de Idioma y Subtítulos por Tipo de Contenido</div>
+        <p style="color:var(--sebi-muted);font-size:13px;margin-top:-4px;margin-bottom:16px;">
+          El botón <strong>⬇ Descargar</strong> aplica automáticamente estas preferencias separadas. Si un día quieres bajar un capítulo concreto en otro idioma cualquiera, usa el botón de la <strong>🔍 Lupa</strong>.
+        </p>
+
+        <div class="sebitv-pref-grid">
+          <div class="sebitv-pref-card">
+            <h3 style="margin:0 0 12px;color:var(--sebi-accent);">🇯🇵 Anime (Series, OVAs y Películas de Anime)</h3>
+            <div class="sebitv-form-group">
+              <label>Audio Primario (1ª opción)</label>
+              ${buildSelect('pref-an-aud1', audioOpts, an.audioPrimary, true)}
+            </div>
+            <div class="sebitv-form-group">
+              <label>Audio Secundario (2ª opción si no existe el primario)</label>
+              ${buildSelect('pref-an-aud2', audioOpts, an.audioSecondary)}
+            </div>
+            <div class="sebitv-form-group">
+              <label>Otros Audios aceptados (3ª opción)</label>
+              ${buildSelect('pref-an-aud3', audioOpts, an.audioOther)}
+            </div>
+            <hr style="border:none;border-top:1px solid var(--sebi-border);margin:14px 0;">
+            <div class="sebitv-form-group">
+              <label>Subtítulo Primario (1ª opción)</label>
+              ${buildSelect('pref-an-sub1', subOpts, an.subPrimary, true)}
+            </div>
+            <div class="sebitv-form-group">
+              <label>Subtítulo Secundario (2ª opción)</label>
+              ${buildSelect('pref-an-sub2', subOpts, an.subSecondary)}
+            </div>
+            <div class="sebitv-form-group">
+              <label>Otros Subtítulos aceptados (3ª opción)</label>
+              ${buildSelect('pref-an-sub3', subOpts, an.subOther)}
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--sebi-text);cursor:pointer;margin-top:8px;">
+              <input type="checkbox" id="pref-an-dub-nosub" ${an.allowSpanishAudioWithoutSubs ? 'checked' : ''}>
+              Si el episodio ya viene doblado con Audio Español Castellano, aceptarlo sin exigir subtítulos
+            </label>
+          </div>
+
+          <div class="sebitv-pref-card">
+            <h3 style="margin:0 0 12px;color:var(--sebi-green);">🎬 Series y Películas Comerciales (No-Anime)</h3>
+            <div class="sebitv-form-group">
+              <label>Audio Primario (1ª opción)</label>
+              ${buildSelect('pref-rg-aud1', audioOpts, rg.audioPrimary, true)}
+            </div>
+            <div class="sebitv-form-group">
+              <label>Audio Secundario (2ª opción)</label>
+              ${buildSelect('pref-rg-aud2', audioOpts, rg.audioSecondary)}
+            </div>
+            <div class="sebitv-form-group">
+              <label>Otros Audios aceptados (3ª opción)</label>
+              ${buildSelect('pref-rg-aud3', audioOpts, rg.audioOther)}
+            </div>
+            <hr style="border:none;border-top:1px solid var(--sebi-border);margin:14px 0;">
+            <div class="sebitv-form-group">
+              <label>Subtítulo Primario (1ª opción)</label>
+              ${buildSelect('pref-rg-sub1', subOpts, rg.subPrimary, true)}
+            </div>
+            <div class="sebitv-form-group">
+              <label>Subtítulo Secundario (2ª opción)</label>
+              ${buildSelect('pref-rg-sub2', subOpts, rg.subSecondary)}
+            </div>
+            <div class="sebitv-form-group">
+              <label>Otros Subtítulos aceptados (3ª opción)</label>
+              ${buildSelect('pref-rg-sub3', subOpts, rg.subOther)}
+            </div>
+          </div>
+        </div>
+
+        <button class="sebitv-pill-btn" id="sebitv-save-prefs">Guardar Preferencias de Idioma</button>
+        <span id="sebitv-prefs-msg" style="margin-left:12px;font-size:13px;color:var(--sebi-green);"></span>
+      `;
+
+      document.getElementById('sebitv-save-prefs').onclick = async () => {
+        const payload = {
+          anime: {
+            audioPrimary: document.getElementById('pref-an-aud1').value,
+            audioSecondary: document.getElementById('pref-an-aud2').value,
+            audioOther: document.getElementById('pref-an-aud3').value,
+            subPrimary: document.getElementById('pref-an-sub1').value,
+            subSecondary: document.getElementById('pref-an-sub2').value,
+            subOther: document.getElementById('pref-an-sub3').value,
+            allowSpanishAudioWithoutSubs: document.getElementById('pref-an-dub-nosub').checked,
+          },
+          regular: {
+            audioPrimary: document.getElementById('pref-rg-aud1').value,
+            audioSecondary: document.getElementById('pref-rg-aud2').value,
+            audioOther: document.getElementById('pref-rg-aud3').value,
+            subPrimary: document.getElementById('pref-rg-sub1').value,
+            subSecondary: document.getElementById('pref-rg-sub2').value,
+            subOther: document.getElementById('pref-rg-sub3').value,
+            allowSpanishAudioWithoutSubs: true,
+          },
+        };
+        await api('/api/preferences', { method: 'POST', body: JSON.stringify(payload) });
+        document.getElementById('sebitv-prefs-msg').textContent = '✔ Preferencias guardadas correctamente';
+      };
+    } catch (err) {
+      body.innerHTML = `<p style="color:var(--sebi-red)">${esc(err.message)}</p>`;
+    }
+  }
+
   async function renderLogsInModal(filterLevel = '') {
     state.currentView = 'logs';
     const body = document.getElementById('sebitv-modal-body');
@@ -917,39 +1153,52 @@
       const data = await api(`/api/logs${qs}`);
       const logs = data.logs || [];
 
+      const badgeStyle = (lvl) => {
+        if (lvl === 'ERROR') return 'background:#ff6b6b;color:#1a0505;';
+        if (lvl === 'WARNING') return 'background:#feca57;color:#1f1600;';
+        if (lvl === 'SUCCESS') return 'background:#2ecc71;color:#052111;';
+        if (lvl === 'USER') return 'background:#00d2d3;color:#022224;';
+        return 'background:#54a0ff;color:#041830;';
+      };
+
       body.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
           <div>
-            <div class="sebitv-section-title" style="margin:0;">Registro Completo de Actividad y Errores</div>
+            <div class="sebitv-section-title" style="margin:0;">Registro Visual de Eventos y Errores</div>
             <div style="font-size:11px;color:var(--sebi-muted);margin-top:3px;">
-              Archivo en servidor: <code>${esc(data.logFilePath || '/config/logs/sebitv.log')}</code> • Endpoint directo: <code>${esc(API_BASE)}/api/logs/raw</code>
+              Archivo: <code>${esc(data.logFilePath || '/config/logs/sebitv.log')}</code> • Raw: <code>${esc(
+                API_BASE
+              )}/api/logs/raw</code>
             </div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="sebitv-pill-btn ${!filterLevel ? '' : 'secondary'}" id="sebitv-log-all">Todos</button>
-            <button class="sebitv-pill-btn ${filterLevel === 'ERROR' ? '' : 'secondary'}" id="sebitv-log-err">Solo Errores</button>
-            <button class="sebitv-pill-btn ${filterLevel === 'WARN' ? '' : 'secondary'}" id="sebitv-log-warn">Avisos</button>
-            <button class="sebitv-pill-btn secondary" id="sebitv-log-refresh">↻ Actualizar</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="sebitv-pill-btn ${!filterLevel ? '' : 'secondary'}" data-lvl="">Todos</button>
+            <button class="sebitv-pill-btn ${filterLevel === 'USER' ? '' : 'secondary'}" data-lvl="USER">[USER]</button>
+            <button class="sebitv-pill-btn ${filterLevel === 'INFO' ? '' : 'secondary'}" data-lvl="INFO">[INFO]</button>
+            <button class="sebitv-pill-btn ${filterLevel === 'SUCCESS' ? '' : 'secondary'}" data-lvl="SUCCESS">[SUCCESS]</button>
+            <button class="sebitv-pill-btn ${filterLevel === 'WARNING' ? '' : 'secondary'}" data-lvl="WARNING">[WARNING]</button>
+            <button class="sebitv-pill-btn ${filterLevel === 'ERROR' ? '' : 'secondary'}" data-lvl="ERROR">[ERROR]</button>
+            <button class="sebitv-pill-btn secondary" id="sebitv-log-refresh">↻</button>
           </div>
         </div>
-        <div style="background:#0b0d11;border:1px solid var(--sebi-border);border-radius:10px;padding:12px;max-height:62vh;overflow-y:auto;font-family:monospace;font-size:12px;">
+        <div style="background:#0b0d11;border:1px solid var(--sebi-border);border-radius:12px;padding:12px;max-height:64vh;overflow-y:auto;font-family:monospace;font-size:12px;">
           ${
             logs.length === 0
               ? '<div style="color:var(--sebi-muted);padding:16px;text-align:center;">Sin eventos registrados para este filtro.</div>'
               : logs
                   .map((l) => {
-                    const color =
-                      l.level === 'ERROR' ? '#ff6b6b' : l.level === 'WARN' ? '#feca57' : '#54a0ff';
                     const timeStr = (l.ts || '').replace('T', ' ').slice(0, 19);
                     return `
-                      <div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);word-break:break-word;">
-                        <span style="color:#7f8fa6;">${esc(timeStr)}</span>
-                        <strong style="color:${color};margin:0 6px;">[${esc(l.level)}]</strong>
-                        <span style="color:#00a4dc;">[${esc(l.source)}:${esc(l.action)}]</span>
-                        <span style="color:#f5f6fa;"> ${esc(l.message)}</span>
+                      <div class="sebitv-log-entry lvl-${esc(l.level)}">
+                        <div>
+                          <span style="color:#8c98a8;">${esc(timeStr)}</span>
+                          <span class="sebitv-log-badge" style="${badgeStyle(l.level)}">[${esc(l.level)}]</span>
+                          <span style="color:#00a4dc;font-weight:700;">[${esc(l.source)}:${esc(l.action)}]</span>
+                          <span style="color:#f5f6fa;margin-left:4px;">${esc(l.message)}</span>
+                        </div>
                         ${
                           l.context
-                            ? `<div style="color:#8c98a8;margin-top:3px;padding-left:12px;">${esc(
+                            ? `<div style="color:#9aa4b2;margin-top:5px;padding-left:10px;font-size:11px;opacity:0.9;">↳ ${esc(
                                 JSON.stringify(l.context)
                               )}</div>`
                             : ''
@@ -962,9 +1211,9 @@
         </div>
       `;
 
-      document.getElementById('sebitv-log-all').onclick = () => renderLogsInModal('');
-      document.getElementById('sebitv-log-err').onclick = () => renderLogsInModal('ERROR');
-      document.getElementById('sebitv-log-warn').onclick = () => renderLogsInModal('WARN');
+      body.querySelectorAll('[data-lvl]').forEach((b) => {
+        b.onclick = () => renderLogsInModal(b.getAttribute('data-lvl'));
+      });
       document.getElementById('sebitv-log-refresh').onclick = () => renderLogsInModal(filterLevel);
     } catch (err) {
       body.innerHTML = `<p style="color:var(--sebi-red)">${esc(err.message)}</p>`;
@@ -1033,7 +1282,10 @@
         const tmdbVal = document.getElementById('sebitv-cfg-tmdb').value.trim();
         const cookieVal = document.getElementById('sebitv-cfg-cookie').value.trim();
         if (tmdbVal) payload.tmdbApiKey = tmdbVal;
-        if (cookieVal) payload.extCookie = cookieVal;
+        if (cookieVal) {
+          payload.extCookie = cookieVal;
+          payload.extUserAgent = navigator.userAgent;
+        }
 
         await api('/api/settings', { method: 'POST', body: JSON.stringify(payload) });
         document.getElementById('sebitv-cfg-msg').textContent = '✔ Ajustes guardados';
@@ -1159,12 +1411,15 @@
 
     const existingBanner = detailContainer.querySelector('.sebitv-native-banner');
     if (existingBanner && existingBanner.dataset.jfid === jellyfinId) return;
-    if (existingBanner) existingBanner.remove();
+    if (state.injectingDetailId === jellyfinId) return;
+    state.injectingDetailId = jellyfinId;
+    detailContainer.querySelectorAll('.sebitv-native-banner').forEach((b) => b.remove());
 
     try {
       const bridge = await api(`/api/jellyfin-bridge?jellyfinId=${encodeURIComponent(jellyfinId)}`);
       if (!bridge.matched || !bridge.item) return;
 
+      detailContainer.querySelectorAll('.sebitv-native-banner').forEach((b) => b.remove());
       const banner = document.createElement('div');
       banner.className = 'sebitv-native-banner';
       banner.dataset.jfid = jellyfinId;
@@ -1253,6 +1508,10 @@
       }
     } catch {
       // Ignorar errores transitorios
+    } finally {
+      if (state.injectingDetailId === jellyfinId) {
+        state.injectingDetailId = null;
+      }
     }
   }
 

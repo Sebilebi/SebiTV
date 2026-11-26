@@ -3,6 +3,15 @@ import path from 'node:path';
 
 const MAX_LOG_BYTES = 5 * 1024 * 1024; // 5 MB por archivo antes de rotar
 
+function normalizeLevel(raw = 'INFO') {
+  const up = String(raw || 'INFO').toUpperCase().trim();
+  if (up === 'WARN' || up === 'WARNING') return 'WARNING';
+  if (up === 'ERR' || up === 'ERROR') return 'ERROR';
+  if (up === 'OK' || up === 'SUCCESS') return 'SUCCESS';
+  if (up === 'USER' || up === 'UI') return 'USER';
+  return 'INFO';
+}
+
 class SebiLogger {
   constructor() {
     this.db = null;
@@ -37,26 +46,32 @@ class SebiLogger {
 
   log(level, source, action, message, context = null) {
     const ts = new Date().toISOString();
-    const lvl = String(level || 'INFO').toUpperCase();
+    const lvl = normalizeLevel(level);
     const src = String(source || 'APP').toUpperCase();
     const act = String(action || 'event');
     const msg = String(message || '');
     const ctxStr = context !== null && context !== undefined ? JSON.stringify(context) : null;
 
-    const line = `[${ts}] [${lvl}] [${src}] (${act}) ${msg}${ctxStr ? ` | ${ctxStr}` : ''}`;
+    const paddedTag = `[${lvl}]`.padEnd(9, ' ');
+    const headerDivider =
+      lvl === 'USER' || lvl === 'ERROR'
+        ? '────────────────────────────────────────────────────────────────────────────────\n'
+        : '';
+    const ctxBlock = ctxStr ? `\n    ↳ Contexto: ${ctxStr}` : '';
+    const formattedBlock = `${headerDivider}${paddedTag} ${ts.replace('T', ' ').slice(0, 23)} | [${src}:${act}] ${msg}${ctxBlock}`;
 
     if (lvl === 'ERROR') {
-      console.error(line);
-    } else if (lvl === 'WARN') {
-      console.warn(line);
+      console.error(formattedBlock);
+    } else if (lvl === 'WARNING') {
+      console.warn(formattedBlock);
     } else {
-      console.log(line);
+      console.log(formattedBlock);
     }
 
     if (this.logFilePath) {
       try {
         this.#rotateIfNeeded();
-        fs.appendFileSync(this.logFilePath, `${line}\n`, 'utf8');
+        fs.appendFileSync(this.logFilePath, `${formattedBlock}\n`, 'utf8');
       } catch {
         // Ignorar fallo de escritura en disco
       }
@@ -82,12 +97,20 @@ class SebiLogger {
     }
   }
 
+  user(action, message, context = null) {
+    this.log('USER', 'UI', action, message, context);
+  }
+
   info(source, action, message, context = null) {
     this.log('INFO', source, action, message, context);
   }
 
+  success(source, action, message, context = null) {
+    this.log('SUCCESS', source, action, message, context);
+  }
+
   warn(source, action, message, context = null) {
-    this.log('WARN', source, action, message, context);
+    this.log('WARNING', source, action, message, context);
   }
 
   error(source, action, message, context = null) {

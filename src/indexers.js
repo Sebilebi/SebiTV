@@ -7,6 +7,12 @@ function decodeHtmlEntities(str = '') {
     .replace(/&#039;|&apos;/g, "'")
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
+    .replace(/&agrave;/gi, 'à')
+    .replace(/&eacute;/gi, 'é')
+    .replace(/&iacute;/gi, 'í')
+    .replace(/&oacute;/gi, 'ó')
+    .replace(/&uacute;/gi, 'ú')
+    .replace(/&ntilde;/gi, 'ñ')
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 }
 
@@ -33,6 +39,21 @@ export function parseSizeToBytes(sizeStr = '') {
 export function extractInfoHashFromMagnet(magnet = '') {
   const m = String(magnet).match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
   return m ? m[1].toLowerCase() : null;
+}
+
+const DEFAULT_PUBLIC_TRACKERS = [
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://exodus.desync.com:6969/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'http://nyaa.tracker.wf:7777/announce',
+];
+
+export function buildMagnetFromHash(infoHash, dn = '', extraTrackers = []) {
+  const hash = String(infoHash).toLowerCase();
+  const allTr = [...new Set([...extraTrackers, ...DEFAULT_PUBLIC_TRACKERS])];
+  const trQuery = allTr.map((t) => `&tr=${encodeURIComponent(t)}`).join('');
+  return `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(dn)}${trQuery}`;
 }
 
 /**
@@ -63,7 +84,6 @@ export function parseExtSearchHtml(html = '', baseUrl = 'https://ext.to') {
 
     const extId = dataIdMatch ? dataIdMatch[1] : null;
 
-    // Extraer celdas <td class="...hide-on-mob...">: [Size, Files, Age, Seeders, Leechers, Source]
     const cells = [];
     const tdRegex = /<td[^>]*hide-on-mob[^>]*>([\s\S]*?)<\/td>/gi;
     let tdMatch;
@@ -117,15 +137,6 @@ export function parseNyaaRssXml(xml = '') {
 
     if (!title || !infoHash) continue;
 
-    const trackers = [
-      'http://nyaa.tracker.wf:7777/announce',
-      'udp://open.stealth.si:80/announce',
-      'udp://tracker.opentrackr.org:1337/announce',
-      'udp://exodus.desync.com:6969/announce',
-    ];
-    const trParams = trackers.map((t) => `&tr=${encodeURIComponent(t)}`).join('');
-    const magnet = `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(title)}${trParams}`;
-
     results.push({
       source: 'nyaa.si',
       extId: null,
@@ -136,12 +147,60 @@ export function parseNyaaRssXml(xml = '') {
       filesCount: 1,
       seeders,
       leechers,
-      magnet,
+      magnet: buildMagnetFromHash(infoHash, title),
       torrentUrl: link.endsWith('.torrent') ? link : null,
       infoHash,
     });
   }
   return results;
+}
+
+const TORRENTIO_PROVIDERS =
+  'providers=yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,nyaasi,tokyotosho,anidex,mejortorrent,wolfmax4k,cinecalidad';
+
+/**
+ * Parsea la respuesta JSON de Torrentio (indexada exactamente por imdb_id y capítulo,
+ * incluyendo trackers españoles como MejorTorrent, Wolfmax4k, DonTorrent y Nyaa).
+ */
+export function parseTorrentioStreams(streams = []) {
+  const out = [];
+  for (const st of streams) {
+    const infoHash = (st.infoHash || '').toLowerCase();
+    if (!infoHash) continue;
+
+    const rawDesc = String(st.title || '');
+    const rawName = String(st.name || '');
+    const combinedText = `${rawName.replace(/\n/g, ' ')} — ${rawDesc.replace(/\n/g, ' | ')}`.trim();
+
+    const seedMatch = rawDesc.match(/👤\s*(\d+)/);
+    const sizeMatch = rawDesc.match(/💾\s*([\d.,]+\s*(?:TB|GB|MB|KB|GiB|MiB))/i);
+    const trackerMatch = rawDesc.match(/⚙️\s*([^\n|]+)/);
+
+    const seeders = seedMatch ? Number.parseInt(seedMatch[1], 10) : 1;
+    const sizeStr = sizeMatch ? sizeMatch[1].trim() : '';
+    const tracker = trackerMatch ? trackerMatch[1].trim() : 'dht';
+
+    const extraTrackers = (st.sources || [])
+      .filter((s) => s.startsWith('tracker:'))
+      .map((s) => s.slice('tracker:'.length));
+
+    out.push({
+      source: `imdb:${tracker}`,
+      extId: null,
+      detailUrl: null,
+      title: combinedText,
+      sizeBytes: parseSizeToBytes(sizeStr),
+      sizeStr,
+      filesCount: 1,
+      seeders: Math.max(seeders, 1), // Torrentio solo indexa torrents conocidos por infoHash
+      leechers: 0,
+      magnet: buildMagnetFromHash(infoHash, rawDesc.split('\n')[0] || infoHash, extraTrackers),
+      infoHash,
+      hintFileIndex: Number.isInteger(st.fileIdx) ? st.fileIdx : null,
+      matchedExactImdbEpisode: true,
+    });
+  }
+  return out;
 }
 
 export class IndexerHub {
@@ -189,7 +248,7 @@ export class IndexerHub {
           ok: false,
           blockedByChallenge: true,
           message:
-            'ext.to solicita verificación anti-bot de Cloudflare en esta IP. Actualiza EXT_COOKIE en Ajustes o usa Nyaa/Prowlarr.',
+            'ext.to solicita verificación Cloudflare en esta IP (usando respaldos automáticos MejorTorrent/Wolfmax/Nyaa/Knaben).',
         };
         logger.warn('INDEXER', 'ext.challenge', `ext.to bloqueado por Cloudflare para "${query || imdbId}"`, {
           status: res.status,
@@ -245,38 +304,45 @@ export class IndexerHub {
     return candidate.magnet;
   }
 
-  async searchNyaa(query) {
-    const cfg = this.getConfig();
-    if (!cfg.nyaaEnabled) return [];
-    const url = new URL(`${cfg.nyaaBaseUrl}/`);
-    url.searchParams.set('page', 'rss');
-    url.searchParams.set('c', '1_2'); // Anime - English-translated / MultiSub (Erai-raws, ToonsHub...)
-    url.searchParams.set('f', '0');
-    url.searchParams.set('q', query);
+  /**
+   * Consulta directa por IMDb ID (y capítulo exacto) en Torrentio multi-tracker
+   * incluyendo trackers españoles (MejorTorrent, Wolfmax4k), Latino (Cinecalidad) y Anime (NyaaSi).
+   */
+  async searchTorrentioByImdb({ imdbId, mediaType, seasonNumber = null, episodeNumber = null }) {
+    if (!imdbId || !imdbId.startsWith('tt')) return [];
+    const kind = mediaType === 'movie' ? 'movie' : 'series';
+    const target =
+      kind === 'movie' ? imdbId : `${imdbId}:${Number(seasonNumber)}:${Number(episodeNumber)}`;
+    const url = `https://torrentio.strem.fun/${TORRENTIO_PROVIDERS}/stream/${kind}/${encodeURIComponent(target)}.json`;
 
     try {
       const res = await fetch(url, {
-        headers: { 'User-Agent': cfg.extUserAgent },
+        headers: { 'User-Agent': this.getConfig().extUserAgent, Accept: 'application/json' },
         signal: AbortSignal.timeout(12000),
       });
       if (!res.ok) return [];
-      const xml = await res.text();
-      const parsed = parseNyaaRssXml(xml);
-      logger.info('INDEXER', 'nyaa.search', `nyaa.si (1_2) devolvió ${parsed.length} resultados`, { query });
+      const data = await res.json();
+      const parsed = parseTorrentioStreams(data?.streams || []);
+      logger.info('INDEXER', 'imdb_streams.search', `Indexador IMDb (${target}) devolvió ${parsed.length} streams`, {
+        target,
+        count: parsed.length,
+      });
       return parsed;
     } catch (err) {
-      logger.warn('INDEXER', 'nyaa.error', `Fallo en nyaa.si (1_2): ${err.message}`, { query });
+      logger.warn('INDEXER', 'imdb_streams.error', `Fallo en indexador IMDb (${target}): ${err.message}`, { target });
       return [];
     }
   }
 
-  async searchNyaaNonEnglish(query) {
+  async searchNyaa(query, subCategory = '1_2') {
     const cfg = this.getConfig();
     if (!cfg.nyaaEnabled) return [];
     const url = new URL(`${cfg.nyaaBaseUrl}/`);
     url.searchParams.set('page', 'rss');
-    url.searchParams.set('c', '1_3'); // Anime - Non-English-translated (Fansubs Español)
+    url.searchParams.set('c', subCategory);
     url.searchParams.set('f', '0');
+    url.searchParams.set('s', 'seeders');
+    url.searchParams.set('o', 'desc');
     url.searchParams.set('q', query);
 
     try {
@@ -286,12 +352,16 @@ export class IndexerHub {
       });
       if (!res.ok) return [];
       const parsed = parseNyaaRssXml(await res.text());
-      logger.info('INDEXER', 'nyaa_es.search', `nyaa.si (1_3) devolvió ${parsed.length} resultados`, { query });
+      logger.info('INDEXER', 'nyaa.search', `nyaa.si (${subCategory}) devolvió ${parsed.length} resultados`, { query });
       return parsed;
     } catch (err) {
-      logger.warn('INDEXER', 'nyaa_es.error', `Fallo en nyaa.si (1_3): ${err.message}`, { query });
+      logger.warn('INDEXER', 'nyaa.error', `Fallo en nyaa.si (${subCategory}): ${err.message}`, { query });
       return [];
     }
+  }
+
+  async searchNyaaNonEnglish(query) {
+    return this.searchNyaa(query, '1_3');
   }
 
   async searchProwlarr(query, categories = []) {
@@ -350,16 +420,12 @@ export class IndexerHub {
       if (!res.ok) return [];
       const data = await res.json();
       const hits = data?.hits || [];
-      return hits
+      const out = hits
         .map((h) => {
           const hash = (h.hash || extractInfoHashFromMagnet(h.magnetUrl || '') || '').toLowerCase();
-          const title = h.title || '';
+          const title = decodeHtmlEntities(h.title || '');
           if (!title || (!hash && !h.magnetUrl)) return null;
-          const magnet =
-            h.magnetUrl ||
-            `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(title)}&tr=${encodeURIComponent(
-              'udp://tracker.opentrackr.org:1337/announce'
-            )}`;
+          const magnet = h.magnetUrl || buildMagnetFromHash(hash, title);
           const bytes = Number(h.bytes || 0);
           return {
             source: `knaben:${h.trackerId || 'dht'}`,
@@ -376,6 +442,8 @@ export class IndexerHub {
           };
         })
         .filter(Boolean);
+      logger.info('INDEXER', 'knaben.search', `Knaben devolvió ${out.length} resultados`, { query });
+      return out;
     } catch (err) {
       logger.warn('INDEXER', 'knaben.error', `Fallo consultando Knaben: ${err.message}`, { query });
       return [];
@@ -392,14 +460,6 @@ export class IndexerHub {
       if (!res.ok) return [];
       const items = await res.json();
       if (!Array.isArray(items)) return [];
-      const trackers = [
-        'udp://tracker.opentrackr.org:1337/announce',
-        'udp://open.stealth.si:80/announce',
-        'udp://exodus.desync.com:6969/announce',
-        'udp://tracker.torrent.eu.org:451/announce',
-      ]
-        .map((t) => `&tr=${encodeURIComponent(t)}`)
-        .join('');
 
       const out = items
         .filter((it) => it && it.info_hash && it.info_hash !== '0000000000000000000000000000000000000000')
@@ -416,7 +476,7 @@ export class IndexerHub {
             filesCount: Number.parseInt(it.num_files || '1', 10) || 1,
             seeders: Number.parseInt(it.seeders || '0', 10) || 0,
             leechers: Number.parseInt(it.leechers || '0', 10) || 0,
-            magnet: `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(it.name || '')}${trackers}`,
+            magnet: buildMagnetFromHash(hash, it.name || ''),
             infoHash: hash,
           };
         });
@@ -429,7 +489,12 @@ export class IndexerHub {
   }
 
   async resolvePlayablePayload(candidate) {
-    if (candidate.magnet) return { magnet: candidate.magnet, infoHash: candidate.infoHash || extractInfoHashFromMagnet(candidate.magnet) };
+    if (candidate.magnet) {
+      return {
+        magnet: candidate.magnet,
+        infoHash: candidate.infoHash || extractInfoHashFromMagnet(candidate.magnet),
+      };
+    }
     if (candidate.source === 'ext.to' && candidate.extId) {
       const magnet = await this.resolveExtMagnet(candidate);
       return { magnet, infoHash: extractInfoHashFromMagnet(magnet) };

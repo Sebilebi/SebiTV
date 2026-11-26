@@ -494,3 +494,90 @@
   font-size: 12px;
   margin: 3px;
 }
+
+/* Perfiles de Preferencias de Idioma (Anime vs Series y Películas) */
+.sebitv-pref-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.sebitv-pref-card {
+  background: var(--sebi-surface);
+  border: 1px solid var(--sebi-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.sebitv-select {
+  width: 100%;
+  background: var(--sebi-surface-2);
+  border: 1px solid var(--sebi-border);
+  color: var(--sebi-text);
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+}
+
+.sebitv-select:focus {
+  border-color: var(--sebi-accent);
+}
+
+.sebitv-lang-chip {
+  display: inline-block;
+  background: rgba(0, 164, 220, 0.16);
+  color: #8be0ff;
+  border: 1px solid rgba(0, 164, 220, 0.35);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 2px 4px 2px 0;
+}
+
+/* Bloques de Log diferenciados visualmente por severidad */
+.sebitv-log-entry {
+  padding: 9px 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  border-left: 4px solid #54a0ff;
+  background: rgba(255, 255, 255, 0.03);
+  word-break: break-word;
+}
+
+.sebitv-log-entry.lvl-USER {
+  border-left-color: #00d2d3;
+  background: rgba(0, 210, 211, 0.06);
+}
+
+.sebitv-log-entry.lvl-INFO {
+  border-left-color: #54a0ff;
+  background: rgba(84, 160, 255, 0.04);
+}
+
+.sebitv-log-entry.lvl-SUCCESS {
+  border-left-color: #2ecc71;
+  background: rgba(46, 204, 113, 0.07);
+}
+
+.sebitv-log-entry.lvl-WARNING {
+  border-left-color: #feca57;
+  background: rgba(254, 202, 87, 0.08);
+}
+
+.sebitv-log-entry.lvl-ERROR {
+  border-left-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.12);
+}
+
+.sebitv-log-badge {
+  display: inline-block;
+  font-weight: 800;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  margin: 0 6px;
+}
+

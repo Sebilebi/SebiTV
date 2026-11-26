@@ -104,6 +104,18 @@ export class SebiDatabase {
       CREATE INDEX IF NOT EXISTS idx_event_logs_level ON event_logs(level, id DESC);
       CREATE INDEX IF NOT EXISTS idx_event_logs_source ON event_logs(source, id DESC);
     `);
+
+    // Migraciones suaves para bases de datos existentes
+    for (const sql of [
+      'ALTER TABLE episodes ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE catalog_items ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0',
+    ]) {
+      try {
+        this.db.exec(sql);
+      } catch {
+        // Columna ya existente
+      }
+    }
   }
 
   insertEventLog({ ts, level, source, action, message, contextJson }) {
@@ -258,12 +270,13 @@ export class SebiDatabase {
       filePath: 'file_path',
       jellyfinId: 'jellyfin_id',
       pinned: 'pinned',
+      manualOverride: 'manual_override',
       watchedAt: 'watched_at',
     };
     for (const [k, col] of Object.entries(map)) {
       if (fields[k] !== undefined) {
         sets.push(`${col} = ?`);
-        vals.push(k === 'pinned' ? (fields[k] ? 1 : 0) : fields[k]);
+        vals.push(k === 'pinned' || k === 'manualOverride' ? (fields[k] ? 1 : 0) : fields[k]);
       }
     }
     vals.push(itemId);
@@ -357,12 +370,13 @@ export class SebiDatabase {
       rejectedHashesJson: 'rejected_hashes_json',
       filePath: 'file_path',
       jellyfinEpisodeId: 'jellyfin_episode_id',
+      manualOverride: 'manual_override',
       watched: 'watched',
     };
     for (const [k, col] of Object.entries(map)) {
       if (fields[k] !== undefined) {
         sets.push(`${col} = ?`);
-        if (k === 'pinned' || k === 'torrentIsPack' || k === 'watched') {
+        if (k === 'pinned' || k === 'torrentIsPack' || k === 'watched' || k === 'manualOverride') {
           vals.push(fields[k] ? 1 : 0);
         } else {
           vals.push(fields[k]);

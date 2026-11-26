@@ -9,6 +9,7 @@ import { QbitClient } from './qbit.js';
 import { JellyfinClient } from './jellyfin.js';
 import { SebiEngine } from './engine.js';
 import { logger } from './logger.js';
+import { getPreferences, savePreferences } from './preferences.js';
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
@@ -215,6 +216,7 @@ export function createSebiApp() {
         const allowed = [
           'tmdbApiKey',
           'extCookie',
+          'extUserAgent',
           'extBaseUrl',
           'prowlarrUrl',
           'prowlarrApiKey',
@@ -227,7 +229,22 @@ export function createSebiApp() {
             db.setSetting(k, String(body[k]).trim());
           }
         }
+        logger.info('API', 'settings.saved', 'Ajustes del sistema actualizados');
         sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      // 2b. Perfiles de Preferencias de Idioma y Subtítulos (Anime vs Series/Películas)
+      if (req.method === 'GET' && pathname === '/api/preferences') {
+        sendJson(res, 200, { ok: true, preferences: getPreferences(db) });
+        return;
+      }
+
+      if (req.method === 'POST' && pathname === '/api/preferences') {
+        const body = await readJsonBody(req);
+        const updated = savePreferences(db, body);
+        logger.user('preferences.saved', 'Preferencias de idioma actualizadas por el usuario', updated);
+        sendJson(res, 200, { ok: true, preferences: updated });
         return;
       }
 
@@ -380,7 +397,7 @@ export function createSebiApp() {
         return;
       }
 
-      // 7. Consultar candidatos manuales opcionales para un capítulo o película
+      // 7. Consultar candidatos manuales (Lupa 🔍 multi-idioma cuando allLanguages=1)
       const epCandMatch = pathname.match(/^\/api\/candidates\/episode\/(\d+)$/);
       if (req.method === 'GET' && epCandMatch) {
         const ep = db.getEpisodeById(Number(epCandMatch[1]));
@@ -388,18 +405,20 @@ export function createSebiApp() {
           sendJson(res, 404, { error: 'Episodio no encontrado' });
           return;
         }
+        const allLanguages = url.searchParams.get('allLanguages') === '1';
         const item = db.getCatalogItemById(ep.item_id);
-        const candidates = await engine.searchEpisodeCandidates(item, ep);
-        sendJson(res, 200, { candidates: candidates.slice(0, 20) });
+        const candidates = await engine.searchEpisodeCandidates(item, ep, { allLanguages });
+        sendJson(res, 200, { candidates: candidates.slice(0, 40) });
         return;
       }
 
       const movCandMatch = pathname.match(/^\/api\/candidates\/movie\/(\d+)$/);
       if (req.method === 'GET' && movCandMatch) {
+        const allLanguages = url.searchParams.get('allLanguages') === '1';
         const rich = await engine.ensureRegistered('movie', Number(movCandMatch[1]));
         const item = db.getCatalogItemById(rich.id);
-        const candidates = await engine.searchMovieCandidates(item);
-        sendJson(res, 200, { candidates: candidates.slice(0, 20) });
+        const candidates = await engine.searchMovieCandidates(item, { allLanguages });
+        sendJson(res, 200, { candidates: candidates.slice(0, 40) });
         return;
       }
 
@@ -537,8 +556,9 @@ export function createSebiApp() {
       // 12. Registro de clics/errores de interfaz y consulta completa de logs
       if (req.method === 'POST' && pathname === '/api/logs/ui') {
         const body = await readJsonBody(req);
+        const incomingLvl = String(body.level || 'USER').toUpperCase();
         logger.log(
-          body.level || 'INFO',
+          incomingLvl === 'INFO' ? 'USER' : incomingLvl,
           'UI',
           body.action || 'ui.event',
           body.message || '',

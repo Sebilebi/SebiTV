@@ -244,10 +244,79 @@ test('Servidor API y SQLite arrancan y guardan ajustes dinámicos correctamente'
     const rawRes = await fetch(`${baseUrl}/api/logs/raw?lines=20`);
     const rawText = await rawRes.text();
     assert.match(rawText, /Temporada 2 Capítulo 8/);
+    assert.match(rawText, /\[USER\]/);
+
+    // Verificar guardado y lectura de perfiles separados de idioma (Anime vs Series/Películas)
+    const prefSaveRes = await fetch(`${baseUrl}/api/preferences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        anime: { audioPrimary: 'ja', audioSecondary: 'es-ES', subPrimary: 'es-ES', subSecondary: 'es-419' },
+        regular: { audioPrimary: 'es-ES', audioSecondary: 'none', subPrimary: 'off' },
+      }),
+    });
+    assert.equal(prefSaveRes.status, 200);
+    const prefGet = await (await fetch(`${baseUrl}/api/preferences`)).json();
+    assert.equal(prefGet.preferences.anime.audioPrimary, 'ja');
+    assert.equal(prefGet.preferences.regular.subPrimary, 'off');
   } finally {
     engine.stop();
     await new Promise((resolve) => server.close(resolve));
     db.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+test('Desambiguación de sagas (Dragon Ball Z != DAIMA/Kai), soporte 3 dígitos/rangos y modo Lupa Multi-Idioma', () => {
+  const dbzPool = [
+    { title: '[Z-A] Dragon Ball DAIMA - 01 [WEB] [1080p] [Sub. Español]', seeders: 10, sizeBytes: 1e9 },
+    { title: 'Dragon Ball Z Kai S01E01 [MultiSub] [1080p]', seeders: 50, sizeBytes: 1e9 },
+    { title: 'Dragon Ball Z 001 Remaster [V4 CC] (BDRip 1080p x265 Multi) - Ryujin', seeders: 186, sizeBytes: 2.5e9 },
+  ];
+
+  // En descarga normal: bloquea DAIMA y Kai, y acepta DBZ 001 Multi
+  const normalFiltered = scoreAndFilterCandidates(dbzPool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['Dragon Ball Z', 'Bola de Dragón Z', 'Dragón Z'],
+    seasonNumber: 1,
+    episodeNumber: 1,
+    absNumber: 1,
+    allLanguages: false,
+  });
+  assert.equal(normalFiltered.length, 1);
+  assert.match(normalFiltered[0].title, /Dragon Ball Z 001 Remaster/);
+
+  // Doraemon clásico doblado al Castellano (rango Cap.101_113) es aceptado gracias a audioSecondary: 'es-ES'
+  const doraPool = [
+    {
+      title: 'Doraemon - Temporada 1 [HDTV][S01E01-S01E13][[Cap.101_113]][Castellano]',
+      seeders: 3,
+      sizeBytes: 550e6,
+    },
+    { title: 'Doraemon (1979) - 01 [English Sub]', seeders: 18, sizeBytes: 300e6 },
+  ];
+
+  const doraAuto = scoreAndFilterCandidates(doraPool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['Doraemon (1979)', 'Doraemon'],
+    seasonNumber: 1,
+    episodeNumber: 1,
+    allLanguages: false,
+  });
+  assert.equal(doraAuto.length, 1);
+  assert.match(doraAuto[0].title, /Castellano/);
+
+  // En modo Lupa Multi-Idioma (allLanguages: true): devuelve AMBOS idiomas etiquetados para que el usuario elija
+  const doraLupa = scoreAndFilterCandidates(doraPool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['Doraemon (1979)', 'Doraemon'],
+    seasonNumber: 1,
+    episodeNumber: 1,
+    allLanguages: true,
+  });
+  assert.equal(doraLupa.length, 2);
+  assert.ok(doraLupa.some((c) => c.languageBadges.some((b) => b.includes('Inglés'))));
 });
