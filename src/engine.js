@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { logger } from './logger.js';
 import {
   sanitizeFileName,
   writeTvShowSkeleton,
@@ -271,6 +272,15 @@ export class SebiEngine {
 
     const rejectedHashes = JSON.parse(ep.rejected_hashes_json || '[]');
     const allowExternalSubFallback = Boolean(cfg.subdlApiKey);
+    const statsNormal = {
+      raw: 0,
+      noSeeds: 0,
+      rejectedHash: 0,
+      titleMismatch: 0,
+      episodeOrYearMismatch: 0,
+      languageRejected: 0,
+      accepted: 0,
+    };
 
     const scoredNormal = scoreAndFilterCandidates(allNormal, {
       isAnime: Boolean(item.is_anime),
@@ -282,6 +292,7 @@ export class SebiEngine {
       rejectedHashes,
       allowExternalSubFallback,
       matchedByImdb: false,
+      statsOut: statsNormal,
     });
 
     const scoredImdb = scoreAndFilterCandidates(imdbTaggedResults, {
@@ -305,6 +316,32 @@ export class SebiEngine {
       seen.add(key);
       merged.push(c);
     }
+
+    logger.info(
+      'SCORER',
+      'episode.candidates',
+      `Búsqueda para "${item.title}" S${s2}E${e2}: ${merged.length} válidos de ${
+        allNormal.length + imdbTaggedResults.length
+      } brutos`,
+      {
+        show: item.title,
+        tmdbId: item.tmdb_id,
+        isAnime: Boolean(item.is_anime),
+        season: ep.season_number,
+        episode: ep.episode_number,
+        absNumber: ep.abs_number,
+        searchTitles: titles,
+        filterStats: statsNormal,
+        topCandidates: merged.slice(0, 4).map((c) => ({
+          source: c.source,
+          title: c.title,
+          seeders: c.seeders,
+          isPack: c.isPack,
+          score: c.score,
+        })),
+      }
+    );
+
     return merged;
   }
 
@@ -428,6 +465,20 @@ export class SebiEngine {
     }
 
     const item = this.db.getCatalogItemById(ep.item_id);
+    logger.info(
+      'ENGINE',
+      'episode.download.start',
+      `Solicitud de descarga: "${item.title}" S${pad2(ep.season_number)}E${pad2(ep.episode_number)} (${ep.title})`,
+      {
+        itemId: item.id,
+        tmdbId: item.tmdb_id,
+        episodeId: ep.id,
+        season: ep.season_number,
+        episode: ep.episode_number,
+        pin,
+        manual: Boolean(manualCandidate),
+      }
+    );
     this.db.updateEpisodeState(ep.id, {
       status: 'searching',
       statusMessage: 'Buscando torrent en idioma requerido...',
@@ -478,6 +529,13 @@ export class SebiEngine {
       const msg = item.is_anime
         ? 'No se encontraron torrents con subtítulos en Español (Castellano o Latino).'
         : 'No se encontraron torrents con audio en Español Castellano.';
+      logger.warn('ENGINE', 'episode.no_candidates', `${item.title} S${pad2(ep.season_number)}E${pad2(ep.episode_number)}: ${msg}`, {
+        itemId: item.id,
+        tmdbId: item.tmdb_id,
+        episodeId: ep.id,
+        season: ep.season_number,
+        episode: ep.episode_number,
+      });
       this.db.updateEpisodeState(ep.id, { status: 'error', statusMessage: msg });
       return this.db.getEpisodeById(ep.id);
     }
@@ -485,6 +543,13 @@ export class SebiEngine {
     let lastErr = null;
     for (const cand of candidates.slice(0, 4)) {
       try {
+        logger.info('QBIT', 'torrent.try_candidate', `Probando candidato "${cand.title}" (${cand.source}, ${cand.seeders} seeds)`, {
+          episodeId: ep.id,
+          source: cand.source,
+          title: cand.title,
+          seeders: cand.seeders,
+          isPack: cand.isPack,
+        });
         const resolved = await this.indexers.resolvePlayablePayload(cand);
         if (!resolved.infoHash && !resolved.magnet && !resolved.torrentUrl) {
           continue;
@@ -513,6 +578,11 @@ export class SebiEngine {
         });
 
         if (!targetFile) {
+          logger.warn('QBIT', 'torrent.file_mismatch', `El torrent ${hash} no contiene archivo para S${pad2(ep.season_number)}E${pad2(ep.episode_number)}`, {
+            episodeId: ep.id,
+            hash,
+            availableFiles: files.slice(0, 15).map((f) => f.name),
+          });
           await this.qbit.deleteTorrent(hash, true);
           throw new Error('El torrent no contiene un archivo de vídeo correspondiente a este capítulo.');
         }
@@ -538,15 +608,36 @@ export class SebiEngine {
           );
         }
 
+        logger.info('QBIT', 'torrent.downloading', `Descarga iniciada en qBittorrent para "${item.title}" S${pad2(ep.season_number)}E${pad2(ep.episode_number)}`, {
+          episodeId: ep.id,
+          hash,
+          selectedFile: targetFile.name,
+          fileIndex: targetFile.index,
+          isPack,
+          totalFilesInTorrent: files.length,
+        });
+
         return this.db.getEpisodeById(ep.id);
       } catch (err) {
         lastErr = err;
+        logger.warn('QBIT', 'torrent.candidate_failed', `Candidato descartado "${cand.title}": ${err.message}`, {
+          episodeId: ep.id,
+          candidateTitle: cand.title,
+          error: err.message,
+        });
       }
     }
 
+    const finalMsg = lastErr?.message || 'Error iniciando descarga en qBittorrent.';
+    logger.error('ENGINE', 'episode.download.failed', `Fallo definitivo al iniciar descarga de "${item.title}" S${pad2(ep.season_number)}E${pad2(ep.episode_number)}: ${finalMsg}`, {
+      itemId: item.id,
+      episodeId: ep.id,
+      season: ep.season_number,
+      episode: ep.episode_number,
+    });
     this.db.updateEpisodeState(ep.id, {
       status: 'error',
-      statusMessage: lastErr?.message || 'Error iniciando descarga en qBittorrent.',
+      statusMessage: finalMsg,
     });
     return this.db.getEpisodeById(ep.id);
   }
@@ -737,6 +828,17 @@ export class SebiEngine {
 
   async #finalizeEpisodeDownload(ep, targetFile, cfg) {
     const item = this.db.getCatalogItemById(ep.item_id);
+    logger.info(
+      'MEDIA',
+      'episode.finalize.start',
+      `Descarga al 100%, validando audio y subtítulos: "${item.title}" S${pad2(ep.season_number)}E${pad2(
+        ep.episode_number
+      )}`,
+      {
+        episodeId: ep.id,
+        file: targetFile.name,
+      }
+    );
     this.db.updateEpisodeState(ep.id, {
       status: 'processing',
       statusMessage: 'Verificando pistas de audio y subtítulos...',
@@ -744,6 +846,10 @@ export class SebiEngine {
 
     const srcPath = path.join(cfg.downloadsRoot, targetFile.name);
     if (!fs.existsSync(srcPath)) {
+      logger.error('MEDIA', 'episode.file_missing', `Archivo descargado no encontrado en ${srcPath}`, {
+        episodeId: ep.id,
+        srcPath,
+      });
       this.db.updateEpisodeState(ep.id, {
         status: 'error',
         statusMessage: `Archivo descargado no encontrado en ${srcPath}`,
@@ -769,6 +875,20 @@ export class SebiEngine {
     let evalResult = { valid: true, totalAudioTracks: 0, totalSubTracks: 0 };
     if (streams.length > 0) {
       evalResult = evaluateMediaStreams(streams, { isAnime: Boolean(item.is_anime) });
+      const detectedTracks = streams
+        .filter((s) => s.codec_type === 'audio' || s.codec_type === 'subtitle')
+        .map((s) => ({
+          type: s.codec_type,
+          lang: s.tags?.language || '',
+          title: s.tags?.title || '',
+        }));
+
+      logger.info('MEDIA', 'episode.ffprobe', `Resultado ffprobe para S${pad2(ep.season_number)}E${pad2(ep.episode_number)}: valid=${evalResult.valid}`, {
+        episodeId: ep.id,
+        evalResult,
+        detectedTracks,
+      });
+
       if (!evalResult.valid && evalResult.needsExternalSub && cfg.subdlApiKey) {
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
         const extSub = await fetchExternalSpanishSubtitle({
@@ -781,11 +901,19 @@ export class SebiEngine {
         });
         if (extSub) {
           evalResult = { ...evalResult, valid: true, subKind: 'external-es' };
+          logger.info('MEDIA', 'episode.external_sub_ok', `Subtítulo externo español descargado: ${extSub}`, {
+            episodeId: ep.id,
+          });
         }
       }
 
       if (!evalResult.valid) {
         // Rechazar torrent que incumple idioma/subtítulos y probar automáticamente el siguiente candidato
+        logger.warn('MEDIA', 'episode.stream_rejected', `Torrent descartado tras ffprobe (${evalResult.reason}). Reintentando con siguiente candidato...`, {
+          episodeId: ep.id,
+          rejectedHash: ep.torrent_hash,
+          reason: evalResult.reason,
+        });
         const rejected = JSON.parse(ep.rejected_hashes_json || '[]');
         if (ep.torrent_hash) rejected.push(ep.torrent_hash.toLowerCase());
         const hashToClean = ep.torrent_hash;
@@ -817,6 +945,11 @@ export class SebiEngine {
       progress: 100,
       downloadSpeed: 0,
       filePath: destPath,
+    });
+
+    logger.info('ENGINE', 'episode.available', `Capítulo listo para reproducir: ${destPath}`, {
+      episodeId: ep.id,
+      destPath,
     });
 
     await this.jellyfin.notifyMediaUpdated(destPath, 'Created');
@@ -1105,25 +1238,35 @@ export class SebiEngine {
       });
 
       for (const nextEp of prefetch) {
-        console.log(
-          `[SebiTV Ventana] Viendo ${item.title} S${pad2(seasonNum)}E${pad2(epNum)} -> Pre-descargando S${pad2(
+        logger.info(
+          'WINDOW',
+          'window.prefetch',
+          `Viendo "${item.title}" S${pad2(seasonNum)}E${pad2(epNum)} -> Pre-descargando S${pad2(
             nextEp.season_number
-          )}E${pad2(nextEp.episode_number)}`
+          )}E${pad2(nextEp.episode_number)}`,
+          { itemId: item.id, watchingEpId: currentEp.id, prefetchEpId: nextEp.id }
         );
         await this.requestEpisodeDownload(nextEp.id, { pin: false }).catch((err) =>
-          console.error('[SebiTV Ventana] Error pre-descargando siguiente capítulo:', err.message)
+          logger.error('WINDOW', 'window.prefetch_error', `Error pre-descargando capítulo: ${err.message}`, {
+            prefetchEpId: nextEp.id,
+          })
         );
       }
 
       for (const oldEp of prune) {
         if (currentlyPlayingIds.has(oldEp.id)) continue;
-        console.log(
-          `[SebiTV Ventana] Viendo ${item.title} S${pad2(seasonNum)}E${pad2(epNum)} -> Desinstalando capítulo antiguo S${pad2(
+        logger.info(
+          'WINDOW',
+          'window.prune',
+          `Viendo "${item.title}" S${pad2(seasonNum)}E${pad2(epNum)} -> Desinstalando antiguo S${pad2(
             oldEp.season_number
-          )}E${pad2(oldEp.episode_number)}`
+          )}E${pad2(oldEp.episode_number)}`,
+          { itemId: item.id, watchingEpId: currentEp.id, prunedEpId: oldEp.id }
         );
         await this.deleteEpisodeMedia(oldEp.id).catch((err) =>
-          console.error('[SebiTV Ventana] Error limpiando capítulo antiguo:', err.message)
+          logger.error('WINDOW', 'window.prune_error', `Error limpiando capítulo antiguo: ${err.message}`, {
+            prunedEpId: oldEp.id,
+          })
         );
       }
     }
@@ -1143,7 +1286,9 @@ export class SebiEngine {
     for (const m of movies) {
       const watchedMs = Date.parse(m.watched_at);
       if (Number.isFinite(watchedMs) && nowMs - watchedMs >= cfg.movieRetentionHours * 3600 * 1000) {
-        console.log(`[SebiTV Limpieza] Limpiando película ya vista tras ${cfg.movieRetentionHours}h: ${m.title}`);
+        logger.info('WINDOW', 'movie.cleanup', `Limpiando película ya vista tras ${cfg.movieRetentionHours}h: ${m.title}`, {
+          itemId: m.id,
+        });
         await this.deleteMovieMedia(m.id).catch(() => {});
       }
     }

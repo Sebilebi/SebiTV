@@ -223,6 +223,27 @@ test('Servidor API y SQLite arrancan y guardan ajustes dinámicos correctamente'
     assert.equal(health.ok, true);
     assert.equal(health.windowBehind, 1);
     assert.equal(health.windowAhead, 1);
+
+    // Verificar registro completo de eventos de UI y lectura por API / raw
+    const logUiRes = await fetch(`${baseUrl}/api/logs/ui`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        level: 'INFO',
+        action: 'ui.click_download_episode',
+        message: 'Pulsó Descargar en "Naruto" Temporada 2 Capítulo 8',
+        context: { tmdbId: 46260, seasonNumber: 2, episodeNumber: 8 },
+      }),
+    });
+    assert.equal(logUiRes.status, 200);
+
+    const logsRes = await fetch(`${baseUrl}/api/logs?limit=10`);
+    const logsData = await logsRes.json();
+    assert.ok(logsData.logs.some((l) => l.action === 'ui.click_download_episode'));
+
+    const rawRes = await fetch(`${baseUrl}/api/logs/raw?lines=20`);
+    const rawText = await rawRes.text();
+    assert.match(rawText, /Temporada 2 Capítulo 8/);
   } finally {
     engine.stop();
     await new Promise((resolve) => server.close(resolve));

@@ -23,9 +23,34 @@
       ...options,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    if (!res.ok) {
+      const errMsg = data.error || `HTTP ${res.status}`;
+      if (!path.startsWith('/api/logs')) {
+        uiLog('api.error', `Fallo llamando a ${path}: ${errMsg}`, { path, status: res.status }, 'ERROR');
+      }
+      throw new Error(errMsg);
+    }
     return data;
   }
+
+  function uiLog(action, message, context = null, level = 'INFO') {
+    fetch(`${API_BASE}/api/logs/ui`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level, action, message, context }),
+    }).catch(() => {});
+  }
+
+  window.addEventListener('error', (ev) => {
+    uiLog('window.error', ev.message || 'Error JS en cliente', {
+      filename: ev.filename,
+      lineno: ev.lineno,
+    }, 'ERROR');
+  });
+
+  window.addEventListener('unhandledrejection', (ev) => {
+    uiLog('window.unhandledrejection', String(ev.reason?.message || ev.reason || 'Promesa rechazada'), null, 'ERROR');
+  });
 
   function esc(str = '') {
     return String(str)
@@ -129,6 +154,7 @@
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-home">Catálogo</button>
           <input type="search" class="sebitv-search-input" id="sebitv-global-search" placeholder="Buscar película, serie o anime en todo el catálogo...">
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-dl">⬇ Descargas</button>
+          <button class="sebitv-pill-btn secondary" id="sebitv-nav-logs">📋 Logs</button>
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-cfg">⚙</button>
           <button class="sebitv-pill-btn danger" id="sebitv-close-modal">✕</button>
         </div>
@@ -141,6 +167,7 @@
     document.getElementById('sebitv-close-modal').onclick = closeOverlay;
     document.getElementById('sebitv-nav-home').onclick = () => renderDiscoverInModal();
     document.getElementById('sebitv-nav-dl').onclick = () => renderDownloadsInModal();
+    document.getElementById('sebitv-nav-logs').onclick = () => renderLogsInModal();
     document.getElementById('sebitv-nav-cfg').onclick = () => renderSettingsInModal();
 
     const searchInput = document.getElementById('sebitv-global-search');
@@ -149,8 +176,10 @@
       clearTimeout(debounce);
       debounce = setTimeout(() => {
         const q = searchInput.value.trim();
-        if (q.length >= 2) renderSearchInModal(q);
-        else if (q.length === 0) renderDiscoverInModal();
+        if (q.length >= 2) {
+          uiLog('ui.search', `Búsqueda en catálogo: "${q}"`, { query: q });
+          renderSearchInModal(q);
+        } else if (q.length === 0) renderDiscoverInModal();
       }, 350);
     });
 
@@ -158,6 +187,7 @@
     else if (view === 'detail' && state.detailKey) {
       await renderItemDetailInModal(state.detailKey.mediaType, state.detailKey.tmdbId, state.detailKey.selectedSeason);
     } else if (view === 'downloads') await renderDownloadsInModal();
+    else if (view === 'logs') await renderLogsInModal();
     else if (view === 'settings') await renderSettingsInModal();
   }
 
@@ -166,6 +196,12 @@
       el.addEventListener('click', () => {
         const mediaType = el.getAttribute('data-type');
         const tmdbId = Number(el.getAttribute('data-tmdb'));
+        const cardTitle = el.querySelector('.sebitv-card-title')?.textContent || '';
+        uiLog('ui.open_item', `Entró en ficha: "${cardTitle}" (${mediaType} #${tmdbId})`, {
+          mediaType,
+          tmdbId,
+          title: cardTitle,
+        });
         state.currentView = 'detail';
         state.detailKey = { mediaType, tmdbId, selectedSeason: null };
         if (!state.overlayOpen) {
@@ -508,6 +544,7 @@
       const dlMovBtn = document.getElementById('sebitv-dl-movie');
       if (dlMovBtn) {
         dlMovBtn.onclick = async () => {
+          uiLog('ui.click_download_movie', `Pulsó Descargar Película: "${item.title}"`, { tmdbId, title: item.title });
           dlMovBtn.disabled = true;
           dlMovBtn.textContent = '⏳ Buscando...';
           await api('/api/download/movie', { method: 'POST', body: JSON.stringify({ tmdbId }) });
@@ -516,11 +553,15 @@
       }
       const pickMovBtn = document.getElementById('sebitv-pick-movie-torrent');
       if (pickMovBtn) {
-        pickMovBtn.onclick = () => showCandidatePicker('movie', tmdbId, null);
+        pickMovBtn.onclick = () => {
+          uiLog('ui.open_picker_movie', `Abrió selector manual de torrent: "${item.title}"`, { tmdbId });
+          showCandidatePicker('movie', tmdbId, null);
+        };
       }
       const playMovBtn = document.getElementById('sebitv-play-movie');
       if (playMovBtn) {
         playMovBtn.onclick = async () => {
+          uiLog('ui.click_play_movie', `Pulsó Play en Película: "${item.title}"`, { tmdbId, itemId: item.id });
           playMovBtn.disabled = true;
           playMovBtn.textContent = '⏳ Abriendo...';
           await syncBrowserJellyfinToken();
@@ -529,8 +570,12 @@
             body: JSON.stringify({ mediaType: 'movie', itemId: item.id }),
           });
           if (res.jellyfinId) {
+            uiLog('ui.play_movie_ok', `Abriendo reproductor Jellyfin para película "${item.title}"`, {
+              jellyfinId: res.jellyfinId,
+            });
             navigateToJellyfinItem(res.jellyfinId, { autoPlay: true });
           } else {
+            uiLog('ui.play_movie_pending', `Película "${item.title}" aún indexándose en Jellyfin`, { itemId: item.id }, 'WARN');
             playMovBtn.disabled = false;
             playMovBtn.textContent = '⏳ Indexando en Jellyfin (pulsa en 3s)';
           }
@@ -604,6 +649,11 @@
       body.querySelectorAll('[data-season-tab]').forEach((tab) => {
         tab.onclick = () => {
           const sNum = Number(tab.getAttribute('data-season-tab'));
+          uiLog('ui.select_season', `Seleccionó Temporada ${sNum} en "${item.title}"`, {
+            tmdbId,
+            title: item.title,
+            seasonNumber: sNum,
+          });
           renderItemDetailInModal('tv', tmdbId, sNum, true);
         };
       });
@@ -611,6 +661,11 @@
       const dlCurSeasonBtn = document.getElementById('sebitv-dl-cur-season');
       if (dlCurSeasonBtn) {
         dlCurSeasonBtn.onclick = async () => {
+          uiLog('ui.click_download_season', `Pulsó Descargar Temporada ${state.detailKey.selectedSeason} de "${item.title}"`, {
+            tmdbId,
+            title: item.title,
+            seasonNumber: state.detailKey.selectedSeason,
+          });
           dlCurSeasonBtn.disabled = true;
           dlCurSeasonBtn.textContent = '⏳ Encolando temporada...';
           await api('/api/download/season', {
@@ -651,6 +706,17 @@
           const episodeId = btn.getAttribute('data-epid') ? Number(btn.getAttribute('data-epid')) : null;
           const seasonNumber = Number(btn.getAttribute('data-s'));
           const episodeNumber = Number(btn.getAttribute('data-e'));
+          uiLog(
+            'ui.click_download_episode',
+            `Pulsó Descargar en "${item.title}" Temporada ${seasonNumber} Capítulo ${episodeNumber}`,
+            {
+              tmdbId,
+              title: item.title,
+              seasonNumber,
+              episodeNumber,
+              episodeId,
+            }
+          );
           await api('/api/download/episode', {
             method: 'POST',
             body: JSON.stringify({ episodeId, tmdbId, seasonNumber, episodeNumber }),
@@ -660,7 +726,11 @@
       });
 
       body.querySelectorAll('[data-ep-pick]').forEach((btn) => {
-        btn.onclick = () => showCandidatePicker('episode', tmdbId, Number(btn.getAttribute('data-ep-pick')));
+        btn.onclick = () => {
+          const epId = Number(btn.getAttribute('data-ep-pick'));
+          uiLog('ui.open_picker_episode', `Abrió selector manual de torrent en "${item.title}"`, { tmdbId, episodeId: epId });
+          showCandidatePicker('episode', tmdbId, epId);
+        };
       });
 
       body.querySelectorAll('[data-ep-play="1"]').forEach((btn) => {
@@ -669,15 +739,33 @@
           btn.textContent = '⏳ Abriendo...';
           await syncBrowserJellyfinToken();
           const epId = Number(btn.getAttribute('data-epid'));
+          uiLog('ui.click_play_episode', `Pulsó Play en capítulo #${epId} de "${item.title}"`, {
+            tmdbId,
+            title: item.title,
+            itemId: item.id,
+            episodeId: epId,
+          });
           const res = await api('/api/play-target', {
             method: 'POST',
             body: JSON.stringify({ mediaType: 'tv', itemId: item.id, episodeId: epId }),
           });
           if (res.jellyfinId) {
+            uiLog('ui.play_episode_ok', `Abriendo reproductor Jellyfin para capítulo #${epId} ("${item.title}")`, {
+              episodeId: epId,
+              jellyfinId: res.jellyfinId,
+            });
             navigateToJellyfinItem(res.jellyfinId, { autoPlay: true });
           } else if (res.seriesJellyfinId) {
+            uiLog('ui.play_episode_fallback_series', `Capítulo #${epId} aún sin ID directo; abriendo ficha de serie`, {
+              episodeId: epId,
+              seriesJellyfinId: res.seriesJellyfinId,
+            }, 'WARN');
             navigateToJellyfinItem(res.seriesJellyfinId, { autoPlay: false });
           } else {
+            uiLog('ui.play_episode_pending', `Jellyfin aún está indexando el archivo del capítulo #${epId}`, {
+              episodeId: epId,
+              itemId: item.id,
+            }, 'WARN');
             btn.disabled = false;
             btn.textContent = '⏳ Indexando en Jellyfin (pulsa en 3s)';
           }
@@ -815,6 +903,69 @@
           if (tmdbId) renderItemDetailInModal(kind, tmdbId, null);
         };
       });
+    } catch (err) {
+      body.innerHTML = `<p style="color:var(--sebi-red)">${esc(err.message)}</p>`;
+    }
+  }
+
+  async function renderLogsInModal(filterLevel = '') {
+    state.currentView = 'logs';
+    const body = document.getElementById('sebitv-modal-body');
+    if (!body) return;
+    try {
+      const qs = filterLevel ? `?limit=250&level=${encodeURIComponent(filterLevel)}` : '?limit=250';
+      const data = await api(`/api/logs${qs}`);
+      const logs = data.logs || [];
+
+      body.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+          <div>
+            <div class="sebitv-section-title" style="margin:0;">Registro Completo de Actividad y Errores</div>
+            <div style="font-size:11px;color:var(--sebi-muted);margin-top:3px;">
+              Archivo en servidor: <code>${esc(data.logFilePath || '/config/logs/sebitv.log')}</code> • Endpoint directo: <code>${esc(API_BASE)}/api/logs/raw</code>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="sebitv-pill-btn ${!filterLevel ? '' : 'secondary'}" id="sebitv-log-all">Todos</button>
+            <button class="sebitv-pill-btn ${filterLevel === 'ERROR' ? '' : 'secondary'}" id="sebitv-log-err">Solo Errores</button>
+            <button class="sebitv-pill-btn ${filterLevel === 'WARN' ? '' : 'secondary'}" id="sebitv-log-warn">Avisos</button>
+            <button class="sebitv-pill-btn secondary" id="sebitv-log-refresh">↻ Actualizar</button>
+          </div>
+        </div>
+        <div style="background:#0b0d11;border:1px solid var(--sebi-border);border-radius:10px;padding:12px;max-height:62vh;overflow-y:auto;font-family:monospace;font-size:12px;">
+          ${
+            logs.length === 0
+              ? '<div style="color:var(--sebi-muted);padding:16px;text-align:center;">Sin eventos registrados para este filtro.</div>'
+              : logs
+                  .map((l) => {
+                    const color =
+                      l.level === 'ERROR' ? '#ff6b6b' : l.level === 'WARN' ? '#feca57' : '#54a0ff';
+                    const timeStr = (l.ts || '').replace('T', ' ').slice(0, 19);
+                    return `
+                      <div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);word-break:break-word;">
+                        <span style="color:#7f8fa6;">${esc(timeStr)}</span>
+                        <strong style="color:${color};margin:0 6px;">[${esc(l.level)}]</strong>
+                        <span style="color:#00a4dc;">[${esc(l.source)}:${esc(l.action)}]</span>
+                        <span style="color:#f5f6fa;"> ${esc(l.message)}</span>
+                        ${
+                          l.context
+                            ? `<div style="color:#8c98a8;margin-top:3px;padding-left:12px;">${esc(
+                                JSON.stringify(l.context)
+                              )}</div>`
+                            : ''
+                        }
+                      </div>
+                    `;
+                  })
+                  .join('')
+          }
+        </div>
+      `;
+
+      document.getElementById('sebitv-log-all').onclick = () => renderLogsInModal('');
+      document.getElementById('sebitv-log-err').onclick = () => renderLogsInModal('ERROR');
+      document.getElementById('sebitv-log-warn').onclick = () => renderLogsInModal('WARN');
+      document.getElementById('sebitv-log-refresh').onclick = () => renderLogsInModal(filterLevel);
     } catch (err) {
       body.innerHTML = `<p style="color:var(--sebi-red)">${esc(err.message)}</p>`;
     }

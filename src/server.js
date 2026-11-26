@@ -8,6 +8,7 @@ import { IndexerHub } from './indexers.js';
 import { QbitClient } from './qbit.js';
 import { JellyfinClient } from './jellyfin.js';
 import { SebiEngine } from './engine.js';
+import { logger } from './logger.js';
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
@@ -32,6 +33,7 @@ async function readJsonBody(req) {
 export function createSebiApp() {
   const bootCfg = resolveRuntimeConfig(null);
   const db = new SebiDatabase(bootCfg.dbPath);
+  logger.init({ dataDir: bootCfg.dataDir, db });
   const getConfig = () => resolveRuntimeConfig(db);
 
   const catalog = new CatalogService(getConfig);
@@ -532,9 +534,54 @@ export function createSebiApp() {
         return;
       }
 
+      // 12. Registro de clics/errores de interfaz y consulta completa de logs
+      if (req.method === 'POST' && pathname === '/api/logs/ui') {
+        const body = await readJsonBody(req);
+        logger.log(
+          body.level || 'INFO',
+          'UI',
+          body.action || 'ui.event',
+          body.message || '',
+          body.context || null
+        );
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/api/logs') {
+        const limit = Number(url.searchParams.get('limit') || '300');
+        const level = url.searchParams.get('level') || null;
+        const source = url.searchParams.get('source') || null;
+        const search = url.searchParams.get('q') || null;
+        const logs = db.queryEventLogs({ limit, level, source, search });
+        sendJson(res, 200, {
+          ok: true,
+          logFilePath: logger.logFilePath,
+          count: logs.length,
+          logs,
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/api/logs/raw') {
+        const lines = Number(url.searchParams.get('lines') || '500');
+        const text = logger.readTailLines(lines);
+        res.writeHead(200, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        });
+        res.end(text);
+        return;
+      }
+
       sendJson(res, 404, { error: `Ruta no encontrada: ${pathname}` });
     } catch (err) {
-      console.error(`[SebiTV HTTP] Error en ${req.method} ${pathname}:`, err);
+      logger.error('API', `${req.method} ${pathname}`, err.message || 'Error interno en SebiTV', {
+        method: req.method,
+        pathname,
+        stack: err.stack,
+      });
       sendJson(res, 500, { error: err.message || 'Error interno en SebiTV' });
     }
   });

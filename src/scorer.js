@@ -127,31 +127,54 @@ export function scoreAndFilterCandidates(candidates, context) {
     rejectedHashes = [],
     allowExternalSubFallback = false,
     matchedByImdb = false,
+    statsOut = null,
   } = context;
+
+  const stats = statsOut || {
+    raw: 0,
+    noSeeds: 0,
+    rejectedHash: 0,
+    titleMismatch: 0,
+    episodeOrYearMismatch: 0,
+    languageRejected: 0,
+    accepted: 0,
+  };
 
   const rejectedSet = new Set((rejectedHashes || []).map((h) => String(h).toLowerCase()));
   const scored = [];
 
   for (const cand of candidates) {
+    stats.raw++;
     const title = cand.title || '';
     if (!title) continue;
-    if ((cand.seeders || 0) <= 0) continue;
-    if (cand.infoHash && rejectedSet.has(cand.infoHash.toLowerCase())) continue;
+    if ((cand.seeders || 0) <= 0) {
+      stats.noSeeds++;
+      continue;
+    }
+    if (cand.infoHash && rejectedSet.has(cand.infoHash.toLowerCase())) {
+      stats.rejectedHash++;
+      continue;
+    }
 
     // Si no vino filtrado por IMDb exacto, validamos coincidencia de título
     if (!matchedByImdb && acceptedTitles.length > 0 && !matchesTitle(title, acceptedTitles)) {
+      stats.titleMismatch++;
       continue;
     }
 
     let isPack = false;
     if (mediaType === 'tv') {
       const epCheck = classifyEpisodeMatch(title, { seasonNumber, episodeNumber, absNumber, isAnime });
-      if (!epCheck.matched) continue;
+      if (!epCheck.matched) {
+        stats.episodeOrYearMismatch++;
+        continue;
+      }
       isPack = epCheck.isPack;
     } else if (year) {
       // En películas, si el torrent indica un año explícito muy distinto al de la película, descartar
       const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
       if (yearMatch && Math.abs(Number(yearMatch[1]) - year) > 1) {
+        stats.episodeOrYearMismatch++;
         continue;
       }
     }
@@ -159,8 +182,14 @@ export function scoreAndFilterCandidates(candidates, context) {
     let score = 0;
 
     if (isAnime) {
-      if (ANIME_ENG_DUB_ONLY_RE.test(title)) continue;
-      if (ANIME_RAW_RE.test(title) && !allowExternalSubFallback) continue;
+      if (ANIME_ENG_DUB_ONLY_RE.test(title)) {
+        stats.languageRejected++;
+        continue;
+      }
+      if (ANIME_RAW_RE.test(title) && !allowExternalSubFallback) {
+        stats.languageRejected++;
+        continue;
+      }
 
       const hasMultiOrSpanishSub = ANIME_MULTISUB_RE.test(title);
       if (hasMultiOrSpanishSub) {
@@ -171,6 +200,7 @@ export function scoreAndFilterCandidates(candidates, context) {
         // SubsPlease u otros en japonés con sub inglés solo si hay proveedor externo de subtítulos activo
         score += 80;
       } else {
+        stats.languageRejected++;
         continue;
       }
     } else {
@@ -180,6 +210,7 @@ export function scoreAndFilterCandidates(candidates, context) {
       const isVoseOnly = VOSE_ONLY_RE.test(title) && !/\b(dual|castellano)\b/i.test(title);
 
       if (!hasCastellano || hasLatino || isVoseOnly) {
+        stats.languageRejected++;
         continue;
       }
 
@@ -207,6 +238,7 @@ export function scoreAndFilterCandidates(candidates, context) {
     });
   }
 
+  stats.accepted = scored.length;
   return scored.sort((a, b) => b.score - a.score);
 }
 

@@ -90,7 +90,73 @@ export class SebiDatabase {
       CREATE INDEX IF NOT EXISTS idx_episodes_item_seq ON episodes(item_id, is_special, season_number, episode_number);
       CREATE INDEX IF NOT EXISTS idx_episodes_status ON episodes(status);
       CREATE INDEX IF NOT EXISTS idx_episodes_hash ON episodes(torrent_hash);
+
+      CREATE TABLE IF NOT EXISTS event_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        level TEXT NOT NULL,
+        source TEXT NOT NULL,
+        action TEXT NOT NULL,
+        message TEXT NOT NULL,
+        context_json TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_event_logs_level ON event_logs(level, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_event_logs_source ON event_logs(source, id DESC);
     `);
+  }
+
+  insertEventLog({ ts, level, source, action, message, contextJson }) {
+    this.db
+      .prepare(
+        `INSERT INTO event_logs (ts, level, source, action, message, context_json)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(ts, level, source, action, message, contextJson ?? null);
+  }
+
+  queryEventLogs({ limit = 250, level = null, source = null, search = null } = {}) {
+    const clauses = [];
+    const params = [];
+    if (level) {
+      clauses.push('level = ?');
+      params.push(String(level).toUpperCase());
+    }
+    if (source) {
+      clauses.push('source = ?');
+      params.push(String(source).toUpperCase());
+    }
+    if (search) {
+      clauses.push('(message LIKE ? OR action LIKE ? OR context_json LIKE ?)');
+      const pat = `%${search}%`;
+      params.push(pat, pat, pat);
+    }
+    const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const safeLimit = Math.min(2000, Math.max(1, Number(limit) || 250));
+    params.push(safeLimit);
+
+    const rows = this.db
+      .prepare(`SELECT * FROM event_logs ${whereSql} ORDER BY id DESC LIMIT ?`)
+      .all(...params);
+
+    return rows.map((r) => ({
+      id: r.id,
+      ts: r.ts,
+      level: r.level,
+      source: r.source,
+      action: r.action,
+      message: r.message,
+      context: r.context_json ? JSON.parse(r.context_json) : null,
+    }));
+  }
+
+  pruneEventLogs(keepMax = 5000) {
+    this.db
+      .prepare(
+        `DELETE FROM event_logs
+         WHERE id <= COALESCE((SELECT MAX(id) - ? FROM event_logs), 0)`
+      )
+      .run(keepMax);
   }
 
   getSetting(key) {

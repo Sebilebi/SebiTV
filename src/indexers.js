@@ -1,3 +1,5 @@
+import { logger } from './logger.js';
+
 function decodeHtmlEntities(str = '') {
   return str
     .replace(/&amp;/g, '&')
@@ -189,19 +191,28 @@ export class IndexerHub {
           message:
             'ext.to solicita verificación anti-bot de Cloudflare en esta IP. Actualiza EXT_COOKIE en Ajustes o usa Nyaa/Prowlarr.',
         };
+        logger.warn('INDEXER', 'ext.challenge', `ext.to bloqueado por Cloudflare para "${query || imdbId}"`, {
+          status: res.status,
+          query,
+          category,
+          imdbId,
+        });
         return [];
       }
 
       if (!res.ok) {
         this.lastExtStatus = { ok: false, message: `ext.to HTTP ${res.status}` };
+        logger.warn('INDEXER', 'ext.http_error', `ext.to devolvió HTTP ${res.status}`, { query, category, imdbId });
         return [];
       }
 
       const parsed = parseExtSearchHtml(body, cfg.extBaseUrl);
       this.lastExtStatus = { ok: true, message: `Conectado (${parsed.length} resultados en última consulta)` };
+      logger.info('INDEXER', 'ext.search', `ext.to devolvió ${parsed.length} resultados`, { query, category, imdbId });
       return parsed;
     } catch (err) {
       this.lastExtStatus = { ok: false, message: `Error conectando a ext.to: ${err.message}` };
+      logger.error('INDEXER', 'ext.error', `Fallo consultando ext.to: ${err.message}`, { query, category, imdbId });
       return [];
     }
   }
@@ -250,8 +261,11 @@ export class IndexerHub {
       });
       if (!res.ok) return [];
       const xml = await res.text();
-      return parseNyaaRssXml(xml);
-    } catch {
+      const parsed = parseNyaaRssXml(xml);
+      logger.info('INDEXER', 'nyaa.search', `nyaa.si (1_2) devolvió ${parsed.length} resultados`, { query });
+      return parsed;
+    } catch (err) {
+      logger.warn('INDEXER', 'nyaa.error', `Fallo en nyaa.si (1_2): ${err.message}`, { query });
       return [];
     }
   }
@@ -271,8 +285,11 @@ export class IndexerHub {
         signal: AbortSignal.timeout(12000),
       });
       if (!res.ok) return [];
-      return parseNyaaRssXml(await res.text());
-    } catch {
+      const parsed = parseNyaaRssXml(await res.text());
+      logger.info('INDEXER', 'nyaa_es.search', `nyaa.si (1_3) devolvió ${parsed.length} resultados`, { query });
+      return parsed;
+    } catch (err) {
+      logger.warn('INDEXER', 'nyaa_es.error', `Fallo en nyaa.si (1_3): ${err.message}`, { query });
       return [];
     }
   }
@@ -359,7 +376,8 @@ export class IndexerHub {
           };
         })
         .filter(Boolean);
-    } catch {
+    } catch (err) {
+      logger.warn('INDEXER', 'knaben.error', `Fallo consultando Knaben: ${err.message}`, { query });
       return [];
     }
   }
@@ -383,7 +401,7 @@ export class IndexerHub {
         .map((t) => `&tr=${encodeURIComponent(t)}`)
         .join('');
 
-      return items
+      const out = items
         .filter((it) => it && it.info_hash && it.info_hash !== '0000000000000000000000000000000000000000')
         .map((it) => {
           const hash = String(it.info_hash).toLowerCase();
@@ -402,7 +420,10 @@ export class IndexerHub {
             infoHash: hash,
           };
         });
-    } catch {
+      logger.info('INDEXER', 'apibay.search', `Apibay devolvió ${out.length} resultados`, { query });
+      return out;
+    } catch (err) {
+      logger.warn('INDEXER', 'apibay.error', `Fallo consultando Apibay: ${err.message}`, { query });
       return [];
     }
   }
