@@ -240,8 +240,10 @@ export function scoreAndFilterCandidates(candidates, context) {
     }
 
     const isExactImdbStream = Boolean(cand.matchedExactImdbEpisode || matchedByImdb);
+    const isTrustedRegionalImdbTracker =
+      isExactImdbStream && /\b(mejortorrent|wolfmax|dontorrent|cinecalidad|nyaa)/i.test(String(cand.source || ''));
 
-    if (!isExactImdbStream && acceptedTitles.length > 0 && !matchesTitle(title, acceptedTitles)) {
+    if (!isTrustedRegionalImdbTracker && acceptedTitles.length > 0 && !matchesTitle(title, acceptedTitles)) {
       stats.titleMismatch++;
       continue;
     }
@@ -292,6 +294,9 @@ export function scoreAndFilterCandidates(candidates, context) {
       let matchedAudioCode = null;
       if (matchAudioPreferenceTier(langInfo, profile.audioPrimary)) {
         audioTierScore = 500;
+        if (profile.audioPrimary === 'es-ES' && langInfo.hasVerifiedCastellano) {
+          audioTierScore += 120;
+        }
         matchedAudioCode = profile.audioPrimary;
       } else if (matchAudioPreferenceTier(langInfo, profile.audioSecondary)) {
         audioTierScore = 340;

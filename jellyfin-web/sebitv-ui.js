@@ -42,6 +42,7 @@
   }
 
   window.addEventListener('error', (ev) => {
+    if (String(ev.filename || '').startsWith('blob:')) return;
     uiLog('window.error', ev.message || 'Error JS en cliente', {
       filename: ev.filename,
       lineno: ev.lineno,

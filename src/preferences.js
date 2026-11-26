@@ -56,6 +56,7 @@ export function savePreferences(db, incoming = {}) {
 export function inspectReleaseLanguages(rawTitle = '') {
   const t = String(rawTitle);
 
+  const flagCount = (t.match(/[\u{1F1E6}-\u{1F1FF}]{2}/gu) || []).length;
   const hasEsFlag = t.includes('🇪🇸');
   const hasMxFlag = t.includes('🇲🇽');
   const hasJpFlag = t.includes('🇯🇵');
@@ -66,26 +67,39 @@ export function inspectReleaseLanguages(rawTitle = '') {
   const hasPtFlag = t.includes('🇵🇹') || t.includes('🇧🇷');
   const hasRuFlag = t.includes('🇷🇺');
 
+  const hasVerifiedCastellano =
+    /\b(castellano|espa[ñn]ol\s+de\s+espa[ñn]a|es-es|dontorrent|mejortorrent|wolfmax\w*|atomohd|pctnew|newpct|pctmix|selecta[\s._-]*visi[oó]n|eth@n|bryan_122|mony2007)\b/i.test(
+      t
+    );
+
+  // En releases AMZN/NF WEB-DL (ej. FLUX/Rapta), Torrentio lista 20+ banderas de subtítulos sin "Multi Audio"/"Dual Audio"
+  const flagsAreSubtitlesOnly =
+    flagCount >= 6 &&
+    !/\b(multi[\s._-]*audio|dual[\s._-]*audio)\b/i.test(t) &&
+    !hasVerifiedCastellano;
+
   const isVoseOnly =
     /\b(vose|v\.o\.s\.e\.?|subtitulad[oa]|sub[\s._-]*esp(?:a[ñn]ol)?)\b/i.test(t) &&
     !/\b(dual|multi[\s._-]*audio|castellano\s+ac3|ac3.*castellano)\b/i.test(t) &&
-    !hasEsFlag;
+    !hasVerifiedCastellano;
 
   const hasExplicitLatino =
-    hasMxFlag || /\b(latino|latam|es-la|es-419|audio[\s._-]*latino|cinecalidad)\b/i.test(t);
+    hasMxFlag ||
+    /\b(latino|latam|es-la|es-419|audio[\s._-]*latino|cinecalidad|dual[\s._-]*yg)\b/i.test(t) ||
+    /\.yg(?:\b|⭐|\s|$)/i.test(t);
 
   const hasExplicitCastellano =
-    hasEsFlag ||
-    /\b(castellano|espa[ñn]ol\s+de\s+espa[ñn]a|es-es|dontorrent|mejortorrent|wolfmax|pctnew|newpct|pctmix|selecta[\s._-]*visi[oó]n)\b/i.test(
-      t
-    ) ||
+    hasVerifiedCastellano ||
+    (hasEsFlag && !flagsAreSubtitlesOnly && !hasExplicitLatino) ||
     (!isVoseOnly &&
       !hasExplicitLatino &&
+      !flagsAreSubtitlesOnly &&
       /\b(spanish|espa[ñn]ol|\besp\b|dual[\s._-]*(?:esp|cast|spa))\b/i.test(t));
 
   const isFrenchOnlyMulti = /\b(truefrench|vff|vfi|vostfr)\b/i.test(t) && !hasEsFlag && !/\b(castellano|spanish|espa[ñn]ol)\b/i.test(t);
 
   const hasMultiSub =
+    (flagsAreSubtitlesOnly && hasEsFlag) ||
     /\b(erai-raws|toonshub|nandesuka|multisub|multi-subs|multi[\s._-]*subs?|multiple[\s._-]*subtitle|multi[\s._-]*language)\b/i.test(
       t
     ) ||
@@ -136,6 +150,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
 
   return {
     hasExplicitCastellano,
+    hasVerifiedCastellano,
     hasExplicitLatino,
     hasJapaneseAudio,
     hasEnglishAudio,

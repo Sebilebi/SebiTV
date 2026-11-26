@@ -320,3 +320,73 @@ test('Desambiguación de sagas (Dragon Ball Z != DAIMA/Kai), soporte 3 dígitos/
   assert.equal(doraLupa.length, 2);
   assert.ok(doraLupa.some((c) => c.languageBadges.some((b) => b.includes('Inglés'))));
 });
+
+test('Series AMZN/NF (ej. Fallout / ESDLA): descarta falsos positivos MultiSub de 26 banderas, Dual.YG Latino y enlaces erróneos', () => {
+  const falloutPool = [
+    {
+      source: 'imdb:ThePirateBay',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — Fallout S01E01 The End 1080p AMZN WEB-DL DDP5 1 Atmos H 264-FLUX | 👤 78 💾 4.64 GB ⚙️ ThePirateBay | 🇬🇧 / 🇯🇵 / 🇷🇺 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇰🇷 / 🇨🇳 / 🇫🇷 / 🇩🇪',
+      seeders: 78,
+      sizeBytes: 4.64e9,
+    },
+    {
+      source: 'imdb:ThePirateBay',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — Fallout.2024.S01.COMPLETE.1080p.AMZN.WEB-DL.h264.Dual.YG⭐ | Fallout.S01E01.The.End.mkv | 👤 19 💾 1.7 GB ⚙️ ThePirateBay | Dual Audio / 🇪🇸',
+      seeders: 19,
+      sizeBytes: 1.7e9,
+    },
+    {
+      source: 'imdb:1337x',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — Il.Rimpatriato.S01E01-10.DLMux.1080p.ITA.SPA.SUBS | Il Rimpatriato S01E01.mkv | 👤 5 💾 1.7 GB ⚙️ 1337x | 🇮🇹 / 🇪🇸',
+      seeders: 5,
+      sizeBytes: 1.7e9,
+    },
+    {
+      source: 'imdb:Wolfmax4k',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Fallout [HDTV 1080p][Cap.101] | 👤 3 💾 5.01 GB ⚙️ Wolfmax4k | 🇪🇸',
+      seeders: 3,
+      sizeBytes: 5.01e9,
+    },
+  ];
+
+  const ranked = scoreAndFilterCandidates(falloutPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['Fallout'],
+    seasonNumber: 1,
+    episodeNumber: 1,
+    allLanguages: false,
+  });
+
+  // Solo Wolfmax4k (Castellano real) pasa: FLUX (26 subs), Dual.YG (Latino) e Il Rimpatriato (otra serie) quedan descartados antes de descargar
+  assert.equal(ranked.length, 1);
+  assert.match(ranked[0].source, /Wolfmax4k/);
+
+  // Y las siglas españolas como "ESDLA" en MejorTorrent siguen pasando aunque abreviadas
+  const esdlaPool = [
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 720p — ESDLA Los Anillos De Poder - Temporada 1 [HDTV 720p][Cap.101][AC3 5.1 Castellano] | 👤 22 💾 2.5 GB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 22,
+      sizeBytes: 2.5e9,
+    },
+  ];
+  const rankedEsdla = scoreAndFilterCandidates(esdlaPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['El Señor de los Anillos: Los Anillos de Poder', 'The Lord of the Rings: The Rings of Power'],
+    seasonNumber: 1,
+    episodeNumber: 1,
+    allLanguages: false,
+  });
+  assert.equal(rankedEsdla.length, 1);
+});
