@@ -2,6 +2,8 @@ services:
   # Inicializador rápido (1 seg): crea carpetas con permisos 1000:1000,
   # preconfigura qBittorrent sin pedir contraseña local y copia el plugin web de Jellyfin
   sebitv-init:
+    image: sebitv-local:1.2.0
+    pull_policy: build
     build:
       context: .
       dockerfile: Dockerfile
@@ -54,6 +56,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
       - JELLYFIN_WEB_DIR=/cache/jellyfin-web-sebitv
+      - SEBITV_WEB_REV=2
     volumes:
       - /srv/media/appdata/jellyfin/config:/config
       - /srv/media/appdata/jellyfin/cache:/cache
@@ -69,6 +72,8 @@ services:
               capabilities: [gpu, compute, utility, video]
 
   sebitv:
+    image: sebitv-local:1.2.0
+    pull_policy: build
     build:
       context: .
       dockerfile: Dockerfile

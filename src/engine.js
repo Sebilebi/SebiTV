@@ -1044,27 +1044,47 @@ export class SebiEngine {
 
       if (now.Type !== 'Episode') continue;
 
-      const seasonNum = now.ParentIndexNumber;
-      const epNum = now.IndexNumber;
-      if (seasonNum === undefined || epNum === undefined) continue;
-
-      // Localizar serie en SebiTV por ruta de archivo o nombre de carpeta
       let item = null;
+      let currentEp = null;
+
+      // 1. Coincidencia exacta por nombre de archivo en disco (inmune a diferencias de temporadas en Anime como Naruto)
       if (now.Path) {
-        const parts = now.Path.replace(/\\/g, '/').split('/');
-        const showFolder = parts.length >= 3 ? parts[parts.length - 3] : null;
-        if (showFolder) {
-          item = this.db.getCatalogItemByFolderName(showFolder);
+        const playingFileName = now.Path.replace(/\\/g, '/').split('/').pop();
+        if (playingFileName) {
+          const epByFile = this.db.db
+            .prepare('SELECT * FROM episodes WHERE file_path LIKE ? LIMIT 1')
+            .get(`%${playingFileName}`);
+          if (epByFile) {
+            currentEp = epByFile;
+            item = this.db.getCatalogItemById(epByFile.item_id);
+          }
         }
       }
-      if (!item && now.SeriesName) {
-        const allShows = this.db.listCatalogItems().filter((i) => i.media_type === 'tv');
-        item = allShows.find((i) => i.title.toLowerCase() === now.SeriesName.toLowerCase()) || null;
-      }
-      if (!item) continue;
 
-      const currentEp = this.db.getEpisodeByCoords(item.id, Number(seasonNum), Number(epNum));
-      if (!currentEp) continue;
+      // 2. Fallback por carpeta/título y coordenadas SxxExx
+      if (!currentEp) {
+        const seasonNum = now.ParentIndexNumber;
+        const epNum = now.IndexNumber;
+        if (seasonNum === undefined || epNum === undefined) continue;
+
+        if (now.Path) {
+          const parts = now.Path.replace(/\\/g, '/').split('/');
+          const showFolder = parts.length >= 3 ? parts[parts.length - 3] : null;
+          if (showFolder) {
+            item = this.db.getCatalogItemByFolderName(showFolder);
+          }
+        }
+        if (!item && now.SeriesName) {
+          const allShows = this.db.listCatalogItems().filter((i) => i.media_type === 'tv');
+          item = allShows.find((i) => i.title.toLowerCase() === now.SeriesName.toLowerCase()) || null;
+        }
+        if (!item) continue;
+        currentEp = this.db.getEpisodeByCoords(item.id, Number(seasonNum), Number(epNum));
+      }
+
+      if (!item || !currentEp) continue;
+      const seasonNum = currentEp.season_number;
+      const epNum = currentEp.episode_number;
 
       currentlyPlayingIds.add(currentEp.id);
       if (!currentEp.watched) {

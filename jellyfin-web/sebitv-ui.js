@@ -238,9 +238,27 @@
     }
   }
 
-  function navigateToJellyfinItem(jellyfinId) {
+  function navigateToJellyfinItem(jellyfinId, { autoPlay = false } = {}) {
     closeOverlay();
-    window.location.hash = `!/details?id=${encodeURIComponent(jellyfinId)}`;
+    // Jellyfin 12.4 usa "#/details?id=..." mientras que versiones antiguas usaban "#!/details?id=..."
+    const prefix = (window.location.hash || '').startsWith('#!/') ? '#!/' : '#/';
+    window.location.hash = `${prefix}details?id=${encodeURIComponent(jellyfinId)}`;
+
+    if (autoPlay) {
+      let attempts = 0;
+      const tryClickPlay = setInterval(() => {
+        attempts++;
+        const playBtn = document.querySelector(
+          '#itemDetailPage:not(.hide) .mainDetailButtons .btnPlay, .itemDetailPage:not(.hide) .btnPlay, .detailPagePrimaryContainer .btnPlay'
+        );
+        if (playBtn) {
+          clearInterval(tryClickPlay);
+          playBtn.click();
+        } else if (attempts >= 20) {
+          clearInterval(tryClickPlay);
+        }
+      }, 250);
+    }
   }
 
   async function syncBrowserJellyfinToken() {
@@ -511,10 +529,10 @@
             body: JSON.stringify({ mediaType: 'movie', itemId: item.id }),
           });
           if (res.jellyfinId) {
-            navigateToJellyfinItem(res.jellyfinId);
+            navigateToJellyfinItem(res.jellyfinId, { autoPlay: true });
           } else {
             playMovBtn.disabled = false;
-            playMovBtn.textContent = '⏳ Escaneando biblioteca (reintenta en 3s)';
+            playMovBtn.textContent = '⏳ Indexando en Jellyfin (pulsa en 3s)';
           }
         };
       }
@@ -656,10 +674,12 @@
             body: JSON.stringify({ mediaType: 'tv', itemId: item.id, episodeId: epId }),
           });
           if (res.jellyfinId) {
-            navigateToJellyfinItem(res.jellyfinId);
+            navigateToJellyfinItem(res.jellyfinId, { autoPlay: true });
+          } else if (res.seriesJellyfinId) {
+            navigateToJellyfinItem(res.seriesJellyfinId, { autoPlay: false });
           } else {
             btn.disabled = false;
-            btn.textContent = '⏳ Escaneando (3s)...';
+            btn.textContent = '⏳ Indexando en Jellyfin (pulsa en 3s)';
           }
         };
       });

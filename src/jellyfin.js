@@ -152,7 +152,15 @@ export class JellyfinClient {
       const virtualFolders = (await this.#request('/Library/VirtualFolders')) || [];
       const existingPaths = new Set();
       for (const vf of virtualFolders) {
-        for (const loc of vf.Locations || []) existingPaths.add(loc);
+        const locs = vf.Locations || [];
+        if (locs.length === 0 && ['Películas', 'Series', 'Anime'].includes(vf.Name)) {
+          // Limpiar librería vacía si se creó sin ruta anteriormente
+          await this.#request(`/Library/VirtualFolders?name=${encodeURIComponent(vf.Name)}&refreshLibrary=false`, {
+            method: 'DELETE',
+          }).catch(() => {});
+          continue;
+        }
+        for (const loc of locs) existingPaths.add(loc);
       }
 
       const desiredLibraries = [
@@ -176,6 +184,7 @@ export class JellyfinClient {
         },
       ];
 
+      let createdAny = false;
       for (const lib of desiredLibraries) {
         if (existingPaths.has(lib.folderPath)) continue;
 
@@ -195,20 +204,26 @@ export class JellyfinClient {
             : [],
         };
 
+        // En Jellyfin 12.x `paths` DEBE viajar como query parameter en POST /Library/VirtualFolders
         const qs = new URLSearchParams({
           name: lib.name,
           collectionType: lib.collectionType,
+          paths: lib.folderPath,
           refreshLibrary: 'true',
         });
 
         await this.#request(`/Library/VirtualFolders?${qs.toString()}`, {
           method: 'POST',
           json: {
-            Paths: [lib.folderPath],
             LibraryOptions: libraryOptions,
           },
         });
+        createdAny = true;
         console.log(`[SebiTV] Biblioteca Jellyfin creada automáticamente: ${lib.name} (${lib.folderPath})`);
+      }
+
+      if (createdAny) {
+        await this.refreshLibraries();
       }
 
       // Activar DisplayMissingEpisodes=true en todos los usuarios para que vean los capítulos virtuales sin botón Play
@@ -334,5 +349,45 @@ export class JellyfinClient {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Busca en Jellyfin el elemento exacto por ruta de archivo físico (/data/media/.../S04E220.mkv),
+   * independientemente de cómo numere Jellyfin las temporadas, esperando si está escaneando.
+   */
+  async findPlayableItemByPath(localFilePath, { maxWaitMs = 12000 } = {}) {
+    if (!localFilePath) return null;
+    const expectedJfPath = this.toJellyfinPath(localFilePath).replace(/\\/g, '/');
+    const fileName = expectedJfPath.split('/').pop();
+    const deadline = Date.now() + maxWaitMs;
+    let triggeredScan = false;
+
+    while (Date.now() <= deadline) {
+      try {
+        const qs = new URLSearchParams({
+          Recursive: 'true',
+          IncludeItemTypes: 'Episode,Movie,Video',
+          Fields: 'Path,LocationType,MediaSources',
+        });
+        const data = await this.#request(`/Items?${qs.toString()}`);
+        const items = data?.Items || [];
+        const exact =
+          items.find((it) => it.Path && it.Path.replace(/\\/g, '/') === expectedJfPath) ||
+          items.find((it) => it.Path && fileName && it.Path.replace(/\\/g, '/').endsWith(`/${fileName}`));
+        if (exact?.Id) {
+          return exact;
+        }
+      } catch {
+        // Ignorar errores transitorios
+      }
+
+      if (!triggeredScan) {
+        triggeredScan = true;
+        await this.notifyMediaUpdated(localFilePath, 'Created');
+        await this.refreshLibraries();
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    return null;
   }
 }

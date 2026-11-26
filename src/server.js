@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import path from 'node:path';
 import { resolveRuntimeConfig } from './config.js';
 import { SebiDatabase } from './db.js';
 import { CatalogService } from './catalog.js';
@@ -54,6 +55,23 @@ export function createSebiApp() {
     const pathname = url.pathname;
 
     try {
+      // 0. Servir activos del plugin web en vivo sin caché para que nunca queden desactualizados en Jellyfin
+      if (req.method === 'GET' && (pathname === '/ui/sebitv-ui.js' || pathname === '/ui/sebitv-ui.css')) {
+        const fileName = pathname.endsWith('.css') ? 'sebitv-ui.css' : 'sebitv-ui.js';
+        const contentType = pathname.endsWith('.css')
+          ? 'text/css; charset=utf-8'
+          : 'application/javascript; charset=utf-8';
+        const filePath = path.join(process.cwd(), 'jellyfin-web', fileName);
+        const content = fs.readFileSync(filePath, 'utf8');
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        });
+        res.end(content);
+        return;
+      }
+
       // 1. Estado del sistema y espacio libre en disco
       if (req.method === 'GET' && pathname === '/api/health') {
         const cfg = getConfig();
@@ -101,50 +119,73 @@ export function createSebiApp() {
       // 1c. Resolver ID exacto de reproducción en Jellyfin para un capítulo o película descargada
       if (req.method === 'POST' && pathname === '/api/play-target') {
         const { mediaType, itemId, episodeId } = await readJsonBody(req);
+        jellyfin.bootstrapped = false;
         await jellyfin.ensureBootstrap();
+
         const item = db.getCatalogItemById(Number(itemId));
         if (!item) {
           sendJson(res, 404, { error: 'Elemento no encontrado' });
           return;
         }
 
-        if (!item.jellyfin_id) {
-          await jellyfin.refreshLibraries();
-          const jf = await jellyfin.findItemByTmdb(item.tmdb_id, item.media_type);
-          if (jf?.Id) {
-            db.updateMovieDownloadState(item.id, { jellyfinId: jf.Id });
-            item.jellyfin_id = jf.Id;
-          }
-        }
-
         if (mediaType === 'movie') {
-          sendJson(res, 200, { jellyfinId: item.jellyfin_id || null });
+          let movJfId = item.jellyfin_id || null;
+          if (!movJfId && item.file_path) {
+            const byPath = await jellyfin.findPlayableItemByPath(item.file_path, { maxWaitMs: 12000 });
+            if (byPath?.Id) {
+              movJfId = byPath.Id;
+              db.updateMovieDownloadState(item.id, { jellyfinId: movJfId });
+            }
+          }
+          if (!movJfId) {
+            const jf = await jellyfin.findItemByTmdb(item.tmdb_id, 'movie');
+            if (jf?.Id) {
+              movJfId = jf.Id;
+              db.updateMovieDownloadState(item.id, { jellyfinId: movJfId });
+            }
+          }
+          sendJson(res, 200, { jellyfinId: movJfId });
           return;
         }
 
         const ep = db.getEpisodeById(Number(episodeId));
         let epJfId = ep?.jellyfin_episode_id || null;
-        if (!epJfId && item.jellyfin_id && ep) {
-          await jellyfin.refreshItem(item.jellyfin_id);
-          const jfEps = await jellyfin.getSeriesEpisodesInJellyfin(item.jellyfin_id);
-          const match = jfEps.find(
-            (e) =>
-              Number(e.ParentIndexNumber) === Number(ep.season_number) &&
-              Number(e.IndexNumber) === Number(ep.episode_number) &&
-              e.LocationType !== 'Virtual'
-          ) || jfEps.find(
-            (e) =>
-              Number(e.ParentIndexNumber) === Number(ep.season_number) &&
-              Number(e.IndexNumber) === Number(ep.episode_number)
-          );
-          if (match?.Id) {
-            epJfId = match.Id;
+
+        // Primero buscar por la ruta exacta del archivo descargado en disco (/data/media/.../S04E220.mkv)
+        if (!epJfId && ep?.file_path) {
+          const byPath = await jellyfin.findPlayableItemByPath(ep.file_path, { maxWaitMs: 12000 });
+          if (byPath?.Id) {
+            epJfId = byPath.Id;
             db.updateEpisodeState(ep.id, { jellyfinEpisodeId: epJfId });
           }
         }
 
+        if (!epJfId) {
+          if (!item.jellyfin_id) {
+            const jf = await jellyfin.findItemByTmdb(item.tmdb_id, 'tv');
+            if (jf?.Id) {
+              db.updateMovieDownloadState(item.id, { jellyfinId: jf.Id });
+              item.jellyfin_id = jf.Id;
+            }
+          }
+          if (item.jellyfin_id && ep) {
+            await jellyfin.refreshItem(item.jellyfin_id);
+            const jfEps = await jellyfin.getSeriesEpisodesInJellyfin(item.jellyfin_id);
+            const match = jfEps.find(
+              (e) =>
+                Number(e.ParentIndexNumber) === Number(ep.season_number) &&
+                Number(e.IndexNumber) === Number(ep.episode_number) &&
+                e.LocationType !== 'Virtual'
+            );
+            if (match?.Id) {
+              epJfId = match.Id;
+              db.updateEpisodeState(ep.id, { jellyfinEpisodeId: epJfId });
+            }
+          }
+        }
+
         sendJson(res, 200, {
-          jellyfinId: epJfId || item.jellyfin_id || null,
+          jellyfinId: epJfId || null,
           seriesJellyfinId: item.jellyfin_id || null,
         });
         return;
