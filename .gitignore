@@ -5,3 +5,12 @@ data/
 *.db-wal
 *.db-shm
 .DS_Store
+
+# Skills locales y contexto multi-IA (NO subir a GitHub)
+.agents/
+.agent/
+.claude/
+skills/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
