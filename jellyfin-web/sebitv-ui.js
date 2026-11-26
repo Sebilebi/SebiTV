@@ -390,13 +390,14 @@
         } else if (item.status === 'downloading' || item.status === 'searching' || item.status === 'processing') {
           heroButtonsHtml = `
             <div class="sebitv-progress-box">
-              <div style="font-size:12px;font-weight:700;">⏳ ${esc(item.status_message || item.status)} (${Math.round(
+              <div style="font-size:12px;font-weight:700;">⏳ ${esc(item.status_message || item.status)} (${Math.floor(
                 item.progress || 0
               )}%) ${formatSpeed(item.download_speed)}</div>
               <div class="sebitv-progress-bar-bg">
                 <div class="sebitv-progress-bar-fill" style="width:${Math.min(100, item.progress || 5)}%"></div>
               </div>
             </div>
+            <button class="sebitv-pill-btn danger" id="sebitv-del-movie" title="Cancelar descarga">✕ Cancelar</button>
           `;
         } else {
           // NO descargada -> SOLO botón Descargar (SIN botón Play)
@@ -502,7 +503,7 @@
                 } else if (ep.status === 'downloading' || ep.status === 'searching' || ep.status === 'processing') {
                   actionHtml = `
                     <div class="sebitv-progress-box">
-                      <div style="font-size:11px;font-weight:700;">⏳ ${Math.round(ep.progress || 0)}% ${formatSpeed(
+                      <div style="font-size:11px;font-weight:700;">⏳ ${Math.floor(ep.progress || 0)}% ${formatSpeed(
                         ep.download_speed
                       )}</div>
                       <div style="font-size:10px;color:var(--sebi-muted);">${esc(ep.status_message || ep.status)}</div>
@@ -510,6 +511,7 @@
                         <div class="sebitv-progress-bar-fill" style="width:${Math.min(100, ep.progress || 6)}%"></div>
                       </div>
                     </div>
+                    <button class="sebitv-pill-btn danger" data-ep-del="${ep.id}" title="Cancelar descarga">✕</button>
                   `;
                 } else {
                   // Capítulo NO descargado -> NO hay botón Play, solo botón Descargar
@@ -1535,7 +1537,12 @@
       if (state.overlayOpen) {
         if (state.currentView === 'downloads') {
           await renderDownloadsInModal();
-        } else if (state.currentView === 'detail' && state.detailKey && (count > 0 || prevCount > 0)) {
+        } else if (
+          state.currentView === 'detail' &&
+          state.detailKey &&
+          (count > 0 || prevCount > 0) &&
+          !document.getElementById('sebitv-close-lupa')
+        ) {
           await renderItemDetailInModal(
             state.detailKey.mediaType,
             state.detailKey.tmdbId,

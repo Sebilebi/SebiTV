@@ -230,7 +230,10 @@ export class CatalogService {
     const altList = data.alternative_titles?.titles || data.alternative_titles?.results || [];
     for (const alt of altList) {
       if (['ES', 'US', 'GB', 'JP'].includes(alt.iso_3166_1)) {
-        pushClean(alt.title);
+        // Ignorar subtítulos específicos de arcos/temporadas posteriores (ej. "Jujutsu Kaisen: Shimetsu Kaiyuu - Zenpen")
+        if (alt.title && !/[:\-–]/.test(alt.title)) {
+          pushClean(alt.title);
+        }
       }
     }
 

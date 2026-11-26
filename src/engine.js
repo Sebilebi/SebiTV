@@ -75,6 +75,7 @@ export class SebiEngine {
     this.tickRunning = false;
     this.timer = null;
     this.activeSessionEpisodeIds = new Set();
+    this.stalledTracker = new Map();
   }
 
   start() {
@@ -832,16 +833,59 @@ export class SebiEngine {
         files.find((f) => f.index === ep.torrent_file_index) || files[0];
       if (!targetFile) continue;
 
-      const pct = Math.min(100, Math.round((targetFile.progress || 0) * 1000) / 10);
+      const rawProg = targetFile.progress || 0;
+      const pct = rawProg >= 1 ? 100 : Math.min(99.9, Math.floor(rawProg * 1000) / 10);
+      const displayPct = rawProg >= 1 ? 100 : Math.min(99, Math.floor(rawProg * 100));
+
+      const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
+      const stallKey = `ep:${ep.id}:${ep.torrent_hash}`;
+      if (tor.state === 'stalledDL' && (tor.dlspeed || 0) === 0) {
+        if (!this.stalledTracker.has(stallKey)) this.stalledTracker.set(stallKey, Date.now());
+      } else {
+        this.stalledTracker.delete(stallKey);
+      }
+      const stalledElapsedMs = this.stalledTracker.has(stallKey)
+        ? Date.now() - this.stalledTracker.get(stallKey)
+        : 0;
+
+      // Caso real en packs españoles (pctnew/wolfmax): pieza frontera de 4 MB compartida con un .txt no semillado (99.89%)
+      const readyNearComplete =
+        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && stalledElapsedMs >= 20000);
+
+      if (rawProg >= 1 || readyNearComplete) {
+        this.stalledTracker.delete(stallKey);
+        await this.#finalizeEpisodeDownload(ep, targetFile, cfg);
+        continue;
+      }
+
+      // Si lleva >= 75s totalmente estancado sin velocidad a bajo porcentaje, descartar y probar siguiente candidato
+      if (stalledElapsedMs >= 75000 && rawProg < 0.998) {
+        this.stalledTracker.delete(stallKey);
+        logger.warn('QBIT', 'torrent.stalled_switch', `Torrent estancado (${pct}% sin semillas activas). Cambiando al siguiente candidato...`, {
+          episodeId: ep.id,
+          hash: ep.torrent_hash,
+        });
+        const rejected = JSON.parse(ep.rejected_hashes_json || '[]');
+        rejected.push(ep.torrent_hash.toLowerCase());
+        const oldHash = ep.torrent_hash;
+        this.db.updateEpisodeState(ep.id, {
+          status: 'missing',
+          torrentHash: null,
+          torrentFileIndex: null,
+          rejectedHashesJson: JSON.stringify(rejected),
+        });
+        if (this.db.countOtherEpisodesUsingHash(oldHash, ep.id) === 0) {
+          await this.qbit.deleteTorrent(oldHash, true).catch(() => {});
+        }
+        await this.requestEpisodeDownload(ep.id, { pin: Boolean(ep.pinned) });
+        continue;
+      }
+
       this.db.updateEpisodeState(ep.id, {
         progress: pct,
         downloadSpeed: tor.dlspeed || 0,
-        statusMessage: `Descargando ${pct.toFixed(0)}%`,
+        statusMessage: `Descargando ${displayPct}%`,
       });
-
-      if ((targetFile.progress || 0) >= 1) {
-        await this.#finalizeEpisodeDownload(ep, targetFile, cfg);
-      }
     }
 
     // 2. Actualizar películas en descarga

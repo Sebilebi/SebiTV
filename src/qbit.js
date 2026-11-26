@@ -70,16 +70,23 @@ export class QbitClient {
     const urls = magnet || torrentUrl;
     if (!urls) throw new Error('Se requiere magnet o torrentUrl para añadir a qBittorrent.');
 
-    await this.#request('/api/v2/torrents/add', {
-      method: 'POST',
-      form: {
-        urls,
-        savepath: savePath,
-        category,
-        sequentialDownload: 'false',
-        firstLastPiecePrio: 'true',
-      },
-    });
+    try {
+      await this.#request('/api/v2/torrents/add', {
+        method: 'POST',
+        form: {
+          urls,
+          savepath: savePath,
+          category,
+          sequentialDownload: 'false',
+          firstLastPiecePrio: 'true',
+        },
+      });
+    } catch (err) {
+      // En qBittorrent v5.x, HTTP 409 significa que ese mismo infoHash ya está añadido en el cliente
+      if (!String(err.message).includes('HTTP 409')) {
+        throw err;
+      }
+    }
   }
 
   async getTorrents(hashes = null) {
