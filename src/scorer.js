@@ -572,9 +572,8 @@ export function scoreAndFilterCandidates(candidates, context) {
         continue;
       }
 
-      // Evaluar subtítulos requeridos según perfil
-      const audioIsAlreadySpanish =
-        (matchedAudioCode === 'es-ES' || langInfo.hasExplicitCastellano) && profile.allowSpanishAudioWithoutSubs;
+      // Evaluar subtítulos requeridos según perfil (solo eximir subtítulos si el audio elegido ya es Castellano)
+      const audioIsAlreadySpanish = matchedAudioCode === 'es-ES' && profile.allowSpanishAudioWithoutSubs;
 
       let subTierScore = 0;
       if (profile.subPrimary === 'off' || audioIsAlreadySpanish) {

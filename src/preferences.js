@@ -133,7 +133,11 @@ export function inspectReleaseLanguages(rawTitle = '') {
   const hasRuFlag = t.includes('🇷🇺');
 
   const filenamePart = t.split('|')[0] || t;
-  const isSpaSubTagInFilename = /\b(?:spa|esp|spanish)[\s._-]*(?:[a-z0-9]+\s+){0,3}subs?\b/i.test(filenamePart);
+  const isMultiSubWithoutMultiAudio =
+    /\b(multiple[\s._-]*subtitles?|multi[\s._-]*subs?|msubs?|erai-raws|subsplease|toonshub)\b/i.test(t) &&
+    !/\b(multi[\s._-]*audio|dual[\s._-]*audio|castellano)\b/i.test(t);
+  const isSpaSubTagInFilename =
+    isMultiSubWithoutMultiAudio || /\b(?:spa|esp|spanish)[\s._-]*(?:[a-z0-9]+\s+){0,3}subs?\b/i.test(filenamePart);
   const hasFilenameSpaAudio =
     !isSpaSubTagInFilename && /\b(multi|dual|\bspa\b|\besp\b|spanish|castellano)\b/i.test(filenamePart);
   const isEnglishSceneWebDl =
@@ -146,12 +150,13 @@ export function inspectReleaseLanguages(rawTitle = '') {
       t
     );
 
-  // En releases internacionales en inglés (ej. Kitsune/FLUX/Rapta/REWARD o "🇬🇧 / 🇪🇸" sin Dual/Multi/Spa), Torrentio lista banderas de subtítulos
+  // En releases internacionales en inglés o anime MultiSub (Erai-raws "[ENG][SPA-LA][SPA]"), Torrentio lista banderas de subtítulos, no audios doblados
   const flagsAreSubtitlesOnly =
-    (flagCount >= 4 || (hasGbFlag && flagCount >= 2) || isEnglishSceneWebDl) &&
-    !/\b(multi[\s._-]*audio|dual[\s._-]*audio)\b/i.test(t) &&
-    !hasFilenameSpaAudio &&
-    !hasVerifiedCastellano;
+    isMultiSubWithoutMultiAudio ||
+    ((flagCount >= 4 || (hasGbFlag && flagCount >= 2) || isEnglishSceneWebDl) &&
+      !/\b(multi[\s._-]*audio|dual[\s._-]*audio)\b/i.test(t) &&
+      !hasFilenameSpaAudio &&
+      !hasVerifiedCastellano);
 
   const isVoseOnly =
     /\b(vose|v\.o\.s\.e\.?|subtitulad[oa]|sub[\s._-]*esp(?:a[ñn]ol)?)\b/i.test(t) &&
@@ -159,11 +164,12 @@ export function inspectReleaseLanguages(rawTitle = '') {
     !hasVerifiedCastellano;
 
   const hasExplicitLatino =
-    hasMxFlag ||
-    /\b(latino|latam|es-la|es-419|spa-la|dual[\s._-]*lat|audio[\s._-]*latino|cinecalidad|pelisenhd|hackstore|megapeliculas\w*|somosmovies|yaske|dual[\s._-]*yg)\b/i.test(
-      t
-    ) ||
-    /\.yg(?:\b|⭐|\s|$)/i.test(t);
+    !isMultiSubWithoutMultiAudio &&
+    (hasMxFlag ||
+      /\b(latino|latam|es-la|es-419|spa-la|dual[\s._-]*lat|audio[\s._-]*latino|cinecalidad|pelisenhd|hackstore|megapeliculas\w*|somosmovies|yaske|dual[\s._-]*yg)\b/i.test(
+        t
+      ) ||
+      /\.yg(?:\b|⭐|\s|$)/i.test(t));
 
   const hasBothSpaVariants =
     hasExplicitLatino && (hasVerifiedCastellano || (/\bspa-la\b/i.test(t) && /\[spa\]/i.test(t)));
@@ -204,7 +210,8 @@ export function inspectReleaseLanguages(rawTitle = '') {
     /\b(japanese|japon[eé]s|\bjpn\b|\bjap\b|erai-raws|subsplease|toonshub)\b/i.test(t);
 
   const hasEnglishAudio =
-    hasGbFlag || hasEngDubOnly || /\b(english|\beng\b|truehd\s+eng|eac3.*eng)\b/i.test(t);
+    !isMultiSubWithoutMultiAudio &&
+    (hasGbFlag || hasEngDubOnly || /\b(english|\beng\b|truehd\s+eng|eac3.*eng)\b/i.test(t));
 
   const hasEnglishSub =
     hasMultiSub || /\b(subsplease|eng(?:lish)?[\s._-]*subs?|sub[\s._-]*eng|es-en)\b/i.test(t);
@@ -215,11 +222,13 @@ export function inspectReleaseLanguages(rawTitle = '') {
   if (hasJapaneseAudio) badges.push('🇯🇵 Japonés');
   if (hasEnglishAudio) badges.push('🇬🇧 Inglés');
   if (hasMultiAudio) badges.push('🌐 Multi-Audio');
-  if (hasFrFlag || /\b(french|truefrench|vff|vf\b|vostfr)\b/i.test(t)) badges.push('🇫🇷 Francés');
-  if (hasItFlag || /\b(\bita\b|italiano)\b/i.test(t)) badges.push('🇮🇹 Italiano');
-  if (hasDeFlag || /\b(german|deutsch|\bger\b)\b/i.test(t)) badges.push('🇩🇪 Alemán');
-  if (hasPtFlag) badges.push('🇧🇷 Portugués');
-  if (hasRuFlag || /\b(\brus\b|russian)\b/i.test(t)) badges.push('🇷🇺 Ruso');
+  if (!flagsAreSubtitlesOnly) {
+    if (hasFrFlag || /\b(french|truefrench|vff|vf\b|vostfr)\b/i.test(t)) badges.push('🇫🇷 Francés');
+    if (hasItFlag || /\b(\bita\b|italiano)\b/i.test(t)) badges.push('🇮🇹 Italiano');
+    if (hasDeFlag || /\b(german|deutsch|\bger\b)\b/i.test(t)) badges.push('🇩🇪 Alemán');
+    if (hasPtFlag) badges.push('🇧🇷 Portugués');
+    if (hasRuFlag || /\b(\brus\b|russian)\b/i.test(t)) badges.push('🇷🇺 Ruso');
+  }
 
   if (hasMultiSub) badges.push('💬 MultiSub (incl. ES)');
   else if (hasSpanishSub) badges.push('💬 Sub Español');

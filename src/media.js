@@ -182,12 +182,18 @@ export function evaluateMediaStreams(
     };
   }
 
+  const isoForCode = { ja: 'jpn', 'es-ES': 'spa', 'es-419': 'spa', en: 'eng' };
+  const rawAudLang = String(audioStreams[chosenAudioPos]?.tags?.language || '').trim().toLowerCase();
+  const repairAudioLang = !rawAudLang || rawAudLang === 'und' ? isoForCode[matchedAudioCode] || null : null;
+
   // 2. Si los subtítulos están en 'off' -> desactivar todos los subtítulos completos
   if (profile.subPrimary === 'off') {
     return {
       valid: true,
       preferredAudioTrackNumber: chosenAudioPos + 1,
       preferredSubTrackNumber: null,
+      repairAudioLang,
+      repairSubLang: null,
       disableAllFullSubs: true,
       totalAudioTracks: audioStreams.length,
       totalSubTracks: subStreams.length,
@@ -203,6 +209,8 @@ export function evaluateMediaStreams(
         valid: true,
         preferredAudioTrackNumber: chosenAudioPos + 1,
         preferredSubTrackNumber: null,
+        repairAudioLang,
+        repairSubLang: null,
         disableAllFullSubs: true,
         totalAudioTracks: audioStreams.length,
         totalSubTracks: subStreams.length,
@@ -219,6 +227,8 @@ export function evaluateMediaStreams(
         subKind: 'none-optional',
         preferredAudioTrackNumber: chosenAudioPos + 1,
         preferredSubTrackNumber: null,
+        repairAudioLang,
+        repairSubLang: null,
         disableAllFullSubs: false,
         totalAudioTracks: audioStreams.length,
         totalSubTracks: subStreams.length,
@@ -227,11 +237,15 @@ export function evaluateMediaStreams(
   }
 
   if (chosenSub) {
+    const rawSubLang = String(subStreams[chosenSub.pos]?.tags?.language || '').trim().toLowerCase();
+    const repairSubLang = !rawSubLang || rawSubLang === 'und' ? isoForCode[chosenSub.subKind] || null : null;
     return {
       valid: true,
       subKind: chosenSub.subKind,
       preferredAudioTrackNumber: chosenAudioPos + 1,
       preferredSubTrackNumber: chosenSub.pos + 1,
+      repairAudioLang,
+      repairSubLang,
       disableAllFullSubs: false,
       totalAudioTracks: audioStreams.length,
       totalSubTracks: subStreams.length,
@@ -284,6 +298,9 @@ export async function applyMkvTrackDefaults(filePath, evalResult) {
   for (let i = 1; i <= (evalResult.totalAudioTracks || 0); i++) {
     const isDef = i === evalResult.preferredAudioTrackNumber ? '1' : '0';
     args.push('--edit', `track:a${i}`, '--set', `flag-default=${isDef}`);
+    if (isDef === '1' && evalResult.repairAudioLang) {
+      args.push('--set', `language=${evalResult.repairAudioLang}`);
+    }
   }
 
   for (let i = 1; i <= (evalResult.totalSubTracks || 0); i++) {
@@ -292,6 +309,12 @@ export async function applyMkvTrackDefaults(filePath, evalResult) {
     } else {
       const isDef = i === evalResult.preferredSubTrackNumber ? '1' : '0';
       args.push('--edit', `track:s${i}`, '--set', `flag-default=${isDef}`);
+      if (isDef === '1') {
+        args.push('--set', 'flag-forced=0');
+        if (evalResult.repairSubLang) {
+          args.push('--set', `language=${evalResult.repairSubLang}`);
+        }
+      }
     }
   }
 

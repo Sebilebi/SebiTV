@@ -166,7 +166,7 @@ test('Validador ffprobe (evaluateMediaStreams) prioriza Castellano > Latino en A
   ];
   assert.equal(evaluateMediaStreams(movieLatinoOnly, { isAnime: false }).valid, false);
 
-  // 6. Rip español Dual (MejorTorrent/Wolfmax) donde la pista Castellano viene como 'und' junto a 'eng' -> aceptada como pista 1
+  // 6. Rip español Dual (MejorTorrent/Wolfmax) donde la pista Castellano viene como 'und' junto a 'eng' -> aceptada como pista 1 y marca repairAudioLang='spa'
   const spanishUntaggedDual = [
     { codec_type: 'video' },
     { codec_type: 'audio', tags: { language: 'und', title: 'AC3 5.1' } },
@@ -175,6 +175,20 @@ test('Validador ffprobe (evaluateMediaStreams) prioriza Castellano > Latino en A
   const untaggedEval = evaluateMediaStreams(spanishUntaggedDual, { isAnime: false });
   assert.equal(untaggedEval.valid, true);
   assert.equal(untaggedEval.preferredAudioTrackNumber, 1);
+  assert.equal(untaggedEval.repairAudioLang, 'spa');
+
+  // 7. Anime MKV antiguo (Erai-raws Shingeki S2) con subtítulos sin código ISO ('') pero title 'Español (España)' -> repara language='spa'
+  const untaggedSubAnime = [
+    { codec_type: 'video' },
+    { codec_type: 'audio', tags: { language: 'jpn', title: '' } },
+    { codec_type: 'subtitle', tags: { language: '', title: 'English' } },
+    { codec_type: 'subtitle', tags: { language: '', title: 'Español (España)' } },
+    { codec_type: 'subtitle', tags: { language: '', title: 'Português (Brasil)' } },
+  ];
+  const untaggedSubEval = evaluateMediaStreams(untaggedSubAnime, { isAnime: true });
+  assert.equal(untaggedSubEval.valid, true);
+  assert.equal(untaggedSubEval.preferredSubTrackNumber, 2);
+  assert.equal(untaggedSubEval.repairSubLang, 'spa');
 });
 
 test('Ventana deslizante [N-1, N, N+1]: en el Cap 5 pre-descarga el 6, conserva el 4 y desinstala 1, 2 y 3 (respetando fijados)', () => {
