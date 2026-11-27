@@ -17,7 +17,7 @@ import {
   selectMovieFileFromTorrent,
   cleanSearchQueryTitle,
 } from './scorer.js';
-import { getPreferences } from './preferences.js';
+import { getPreferences, summarizeProfileRule } from './preferences.js';
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -188,6 +188,10 @@ export class SebiEngine {
     return this.getRichCatalogItem(savedItem.id);
   }
 
+  getProfileRuleLabel(isAnime = false) {
+    return summarizeProfileRule(getPreferences(this.db), Boolean(isAnime));
+  }
+
   async getRichCatalogItem(itemId) {
     const item = this.db.getCatalogItemById(itemId);
     if (!item) return null;
@@ -209,9 +213,7 @@ export class SebiEngine {
       pinned: Boolean(item.pinned),
       searchTitles: JSON.parse(item.search_titles_json || '[]'),
       relatedMovies: JSON.parse(item.related_movies_json || '[]'),
-      languageRule: item.is_anime
-        ? '🇯🇵 Audio Japonés + Sub Español (Castellano > Latino)'
-        : '🇪🇸 Audio Español Castellano (Sin subtítulos)',
+      languageRule: this.getProfileRuleLabel(item.is_anime),
       seasons: seasons.map((s) => ({ ...s, pinned: Boolean(s.pinned) })),
       episodes: episodes.map((e) => ({
         ...e,

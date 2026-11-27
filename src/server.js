@@ -321,6 +321,7 @@ export function createSebiApp() {
           registered: false,
           item: {
             ...remote,
+            languageRule: engine.getProfileRuleLabel(remote.isAnime),
             pinned: false,
             status: 'virtual',
             progress: 0,

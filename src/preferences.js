@@ -1,8 +1,10 @@
 /**
- * Perfiles separados de preferencias de idioma y subtítulos:
+ * Perfiles separados de preferencias de idioma, subtítulos y calidad de vídeo:
  * 1. Perfil Anime (Series, OVAs y Películas de Anime)
  * 2. Perfil Series y Películas (Cine comercial y series occidentales)
  */
+
+const VALID_VIDEO_QUALITIES = new Set(['best', '4k', '1080p', '720p', 'sd']);
 
 export const DEFAULT_PREFERENCES = {
   anime: {
@@ -13,6 +15,8 @@ export const DEFAULT_PREFERENCES = {
     subSecondary: 'es-419', // 'es-ES' | 'es-419' | 'en' | 'off' | 'any' | 'none'
     subOther: 'none', // 'es-ES' | 'es-419' | 'en' | 'off' | 'any' | 'none'
     allowSpanishAudioWithoutSubs: true, // Si está doblado al Castellano (ej. Doraemon), no exigir subtítulos
+    videoQuality: '1080p', // 'best' | '4k' | '1080p' | '720p' | 'sd'
+    allowQualityFallback: true, // Si no existe esa resolución en el idioma elegido, aceptar otra calidad disponible
   },
   regular: {
     audioPrimary: 'es-ES',
@@ -22,8 +26,19 @@ export const DEFAULT_PREFERENCES = {
     subSecondary: 'none',
     subOther: 'none',
     allowSpanishAudioWithoutSubs: true,
+    videoQuality: '1080p',
+    allowQualityFallback: true,
   },
 };
+
+function normalizeProfile(defaults, raw = {}) {
+  const merged = { ...defaults, ...(raw || {}) };
+  const q = String(merged.videoQuality || defaults.videoQuality || '1080p').toLowerCase();
+  merged.videoQuality = VALID_VIDEO_QUALITIES.has(q) ? q : '1080p';
+  merged.allowQualityFallback = merged.allowQualityFallback !== false;
+  merged.allowSpanishAudioWithoutSubs = Boolean(merged.allowSpanishAudioWithoutSubs);
+  return merged;
+}
 
 export function getPreferences(db) {
   const raw = db?.getSetting?.('languagePreferences');
@@ -31,8 +46,8 @@ export function getPreferences(db) {
   try {
     const parsed = JSON.parse(raw);
     return {
-      anime: { ...DEFAULT_PREFERENCES.anime, ...(parsed.anime || {}) },
-      regular: { ...DEFAULT_PREFERENCES.regular, ...(parsed.regular || {}) },
+      anime: normalizeProfile(DEFAULT_PREFERENCES.anime, parsed.anime),
+      regular: normalizeProfile(DEFAULT_PREFERENCES.regular, parsed.regular),
     };
   } catch {
     return structuredClone(DEFAULT_PREFERENCES);
@@ -42,11 +57,61 @@ export function getPreferences(db) {
 export function savePreferences(db, incoming = {}) {
   const current = getPreferences(db);
   const next = {
-    anime: { ...current.anime, ...(incoming.anime || {}) },
-    regular: { ...current.regular, ...(incoming.regular || {}) },
+    anime: normalizeProfile(current.anime, incoming.anime),
+    regular: normalizeProfile(current.regular, incoming.regular),
   };
   db.setSetting('languagePreferences', JSON.stringify(next));
   return next;
+}
+
+export function summarizeProfileRule(preferences = DEFAULT_PREFERENCES, isAnime = false) {
+  const prof = isAnime
+    ? normalizeProfile(DEFAULT_PREFERENCES.anime, preferences?.anime)
+    : normalizeProfile(DEFAULT_PREFERENCES.regular, preferences?.regular);
+
+  const audioMap = {
+    ja: '🇯🇵 Audio Japonés',
+    'es-ES': '🇪🇸 Audio Castellano',
+    'es-419': '🇲🇽 Audio Latino',
+    en: '🇬🇧 Audio Inglés',
+    any: '🔓 Cualquier audio',
+  };
+  const subMap = {
+    off: '🚫 Sin subtítulos',
+    'es-ES': '💬 Sub Español',
+    'es-419': '💬 Sub Latino',
+    en: '💬 Sub Inglés',
+    any: '💬 Sub Opcional',
+  };
+  const strict = !prof.allowQualityFallback && prof.videoQuality !== 'best';
+  const qualityMap = {
+    best: '✨ Mejor resolución (4K > 1080p)',
+    '4k': strict ? '💎 Solo 4K UHD' : '💎 Calidad 4K UHD',
+    '1080p': strict ? '🎯 Solo 1080p' : '🎯 Calidad 1080p',
+    '720p': strict ? '⚡ Solo 720p' : '⚡ Calidad 720p',
+    sd: strict ? '📦 Solo SD' : '📦 Calidad SD',
+  };
+
+  return `${audioMap[prof.audioPrimary] || '🔊 Audio'} • ${subMap[prof.subPrimary] || '💬 Subs'} • ${
+    qualityMap[prof.videoQuality] || '🎯 Calidad 1080p'
+  }`;
+}
+
+function parseCleanCandidateNames(rawTitle = '') {
+  const stripped = String(rawTitle || '').replace(/^Torrentio[^—]*—\s*/i, '').trim();
+  const segments = stripped
+    .split(/\s*\|\s*/)
+    .map((s) => s.trim())
+    .filter(
+      (s) =>
+        s &&
+        !/^(?:👤|💾|⚙️)/.test(s) &&
+        !/^(?:multi\s*subs?|dual\s*audio|[\u{1F1E6}-\u{1F1FF}\s/+•-]+)$/iu.test(s)
+    );
+
+  const displayTitle = segments[0] || stripped;
+  const subFileTitle = segments.length > 1 && segments[1] !== displayTitle ? segments[1] : '';
+  return { displayTitle, subFileTitle };
 }
 
 /**
@@ -155,9 +220,27 @@ export function inspectReleaseLanguages(rawTitle = '') {
   else if (hasEnglishSub) badges.push('💬 Sub Inglés');
 
   let resolution = 'SD';
-  if (/\b(2160p|4k|uhd)\b/i.test(t)) resolution = '4K';
-  else if (/\b(1080p|1920x1080|fhd)\b/i.test(t)) resolution = '1080p';
-  else if (/\b(720p|1280x720)\b/i.test(t)) resolution = '720p';
+  if (/\b(2160p|4k|uhd|3840x2160)\b/i.test(t)) resolution = '4K';
+  else if (/\b(1080p|1080i|1920x1080|fhd)\b/i.test(t)) resolution = '1080p';
+  else if (/\b(720p|1280x720|hdrip|microhd)\b/i.test(t)) resolution = '720p';
+
+  const codecTags = [];
+  if (/\bav1\b/i.test(t)) codecTags.push('AV1');
+  else if (/\b(hevc|x265|h\.?265)\b/i.test(t)) codecTags.push('HEVC');
+  else if (/\b(avc|x264|h\.?264)\b/i.test(t)) codecTags.push('H.264');
+
+  if (/\b(dovi|dolby[\s._-]*vision|\bdv\b)\b/i.test(t)) codecTags.push('DV');
+  if (/\b(hdr10\+?|hdr)\b/i.test(t)) codecTags.push('HDR');
+  if (/\b10[\s._-]*bits?\b/i.test(t)) codecTags.push('10-bit');
+
+  if (/\b(bdremux|uhdremux|remux)\b/i.test(t)) codecTags.push('BDRemux');
+  else if (/\bmicrohd\b/i.test(t)) codecTags.push('MicroHD');
+  else if (/\b(bluray|bdrip|brrip|\bbd\b)\b/i.test(t)) codecTags.push('BluRay');
+  else if (/\b(web-dl|webdl|webrip|amzn|nf|dsnp|atvp|hmax)\b/i.test(t)) codecTags.push('WEB-DL');
+  else if (/\bhdtv\b/i.test(t)) codecTags.push('HDTV');
+  else if (/\bdvdrip\b/i.test(t)) codecTags.push('DVDRip');
+
+  const { displayTitle, subFileTitle } = parseCleanCandidateNames(t);
 
   return {
     hasExplicitCastellano,
@@ -172,6 +255,9 @@ export function inspectReleaseLanguages(rawTitle = '') {
     hasEnglishSub,
     isVoseOnly,
     resolution,
+    codecTags,
+    displayTitle,
+    subFileTitle,
     badges: badges.length > 0 ? badges : ['🌐 Idioma sin especificar'],
   };
 }

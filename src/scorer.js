@@ -306,10 +306,47 @@ export function classifyEpisodeMatch(
   return { matched: false, isPack: false };
 }
 
-function resolutionScore(title = '', seeders = 1) {
-  if (/\b(1080p|1920x1080|fhd)\b/i.test(title)) return 120;
-  if (/\b(720p|1280x720|hdrip|microhd|bdrip|bluray|web-dl|webrip)\b/i.test(title)) return 85;
-  if (/\b(2160p|4k|uhd)\b/i.test(title)) return seeders <= 3 ? 35 : 80;
+function qualityPreferenceScore(resolution = 'SD', seeders = 1, prefQuality = '1080p', { allLanguages = false, sizeBytes = 0 } = {}) {
+  if (allLanguages) {
+    if (resolution === '1080p') return 130;
+    if (resolution === '4K') return seeders <= 3 ? 60 : 120;
+    if (resolution === '720p') return 95;
+    return 30;
+  }
+
+  const q = String(prefQuality || '1080p').toLowerCase();
+  if (q === 'best') {
+    if (resolution === '4K') return seeders <= 1 ? 185 : 310;
+    if (resolution === '1080p') return 175;
+    if (resolution === '720p') return 85;
+    return 25;
+  }
+  if (q === '4k') {
+    if (resolution === '4K') return 330;
+    if (resolution === '1080p') return 165;
+    if (resolution === '720p') return 80;
+    return 20;
+  }
+  if (q === '720p') {
+    let base = 55;
+    if (resolution === '720p') base = 260;
+    else if (resolution === '1080p') base = 110;
+    else if (resolution === '4K') base = -70;
+    if (sizeBytes > 0 && sizeBytes <= 3.5 * 1024 ** 3) base += 30;
+    else if (sizeBytes > 8 * 1024 ** 3) base -= 80;
+    return base;
+  }
+  if (q === 'sd') {
+    if (resolution === 'SD') return 260;
+    if (resolution === '720p') return 120;
+    if (resolution === '1080p') return 45;
+    return -110;
+  }
+
+  // Por defecto: '1080p' (Equilibrio ideal calidad / espacio en disco)
+  if (resolution === '1080p') return seeders <= 1 ? 145 : 230;
+  if (resolution === '720p') return 95;
+  if (resolution === '4K') return seeders <= 3 ? 35 : 85;
   return 25;
 }
 
@@ -375,6 +412,7 @@ export function scoreAndFilterCandidates(candidates, context) {
     titleMismatch: 0,
     episodeOrYearMismatch: 0,
     languageRejected: 0,
+    qualityRejected: 0,
     accepted: 0,
   };
 
@@ -482,13 +520,25 @@ export function scoreAndFilterCandidates(candidates, context) {
     }
 
     const langInfo = inspectReleaseLanguages(title);
+    const prefQuality = String(profile.videoQuality || '1080p').toLowerCase();
+    const allowQualityFallback = profile.allowQualityFallback !== false;
     let score = 0;
 
     if (allLanguages) {
-      // MODO LUPA 🔍: No descartar ningún idioma ni subtítulo; solo ordenar por calidad y semillas
+      // MODO LUPA 🔍: No descartar ningún idioma, subtítulo ni resolución; devolver todas las opciones etiquetadas
       if (langInfo.hasExplicitCastellano) score += 150;
       if (langInfo.hasSpanishSub) score += 120;
     } else {
+      // Filtro estricto de resolución cuando el usuario desmarca "Permitir otra resolución de respaldo"
+      if (!allowQualityFallback && prefQuality !== 'best') {
+        const expectedResMap = { '4k': '4K', '1080p': '1080p', '720p': '720p', sd: 'SD' };
+        const expectedRes = expectedResMap[prefQuality];
+        if (expectedRes && langInfo.resolution !== expectedRes) {
+          stats.qualityRejected = (stats.qualityRejected || 0) + 1;
+          continue;
+        }
+      }
+
       // MODO DESCARGA AUTOMÁTICA: Aplicar estrictamente el Perfil de Preferencias (Primario > Secundario > Otros)
       if (isAnime && ANIME_RAW_RE.test(title) && !allowExternalSubFallback) {
         stats.languageRejected++;
@@ -506,13 +556,13 @@ export function scoreAndFilterCandidates(candidates, context) {
       let audioTierScore = 0;
       let matchedAudioCode = null;
       if (matchAudioPreferenceTier(langInfo, profile.audioPrimary)) {
-        audioTierScore = 500;
+        audioTierScore = 650;
         if (profile.audioPrimary === 'es-ES' && langInfo.hasVerifiedCastellano) {
           audioTierScore += 120;
         }
         matchedAudioCode = profile.audioPrimary;
       } else if (matchAudioPreferenceTier(langInfo, profile.audioSecondary)) {
-        audioTierScore = 340;
+        audioTierScore = 380;
         matchedAudioCode = profile.audioSecondary;
       } else if (matchAudioPreferenceTier(langInfo, profile.audioOther)) {
         audioTierScore = 180;
@@ -553,22 +603,32 @@ export function scoreAndFilterCandidates(candidates, context) {
     if (CAM_RE.test(title)) score -= 350;
     if (/anidex/i.test(String(cand.source || ''))) score -= 120;
 
-    score += resolutionScore(title, cand.seeders || 1);
+    const wants4k = !allLanguages && (prefQuality === 'best' || prefQuality === '4k');
+    score += qualityPreferenceScore(langInfo.resolution, cand.seeders || 1, prefQuality, {
+      allLanguages,
+      sizeBytes: cand.sizeBytes || 0,
+    });
     score += Math.round(Math.log2((cand.seeders || 1) + 1) * 36);
 
     if (isPack && !Number.isInteger(cand.hintFileIndex)) score -= 35;
-    if (!isPack && mediaType === 'tv' && cand.sizeBytes > 6 * 1024 ** 3) score -= 120;
+    if (!isPack && mediaType === 'tv' && cand.sizeBytes > (wants4k ? 16 : 6) * 1024 ** 3) score -= 120;
     if (mediaType === 'movie') {
       const isRemux = /\b(bdremux|uhdremux|remux|fullbluray|bd50|bd25)\b/i.test(title);
-      if (isRemux || cand.sizeBytes > 24 * 1024 ** 3) {
+      if (wants4k) {
+        if (cand.sizeBytes > 42 * 1024 ** 3 || (/\b(fullbluray|bd50)\b/i.test(title) && cand.sizeBytes > 32 * 1024 ** 3)) {
+          score -= 340;
+        } else if (!isAnime && cand.sizeBytes >= 2 * 1024 ** 3 && cand.sizeBytes <= 28 * 1024 ** 3) {
+          score += 65;
+        }
+      } else if (isRemux || cand.sizeBytes > 24 * 1024 ** 3) {
         score -= 340; // Proteger el disco de 120 GB frente a BDRemux de 35-60 GB salvo que sea la única copia
       } else if (cand.sizeBytes > 15 * 1024 ** 3) {
         score -= 140;
       } else if (!isAnime && cand.sizeBytes >= 1.4 * 1024 ** 3 && cand.sizeBytes <= 13 * 1024 ** 3) {
         score += 65; // Tamaño ideal 1080p / MicroHD / BluRay Rip rápido y nítido
       }
-      if (isAnime && cand.sizeBytes >= 900 * 1024 ** 2 && cand.sizeBytes <= 4.5 * 1024 ** 3) score += 40;
-      if (isAnime && cand.sizeBytes > 5 * 1024 ** 3 && (cand.seeders || 0) < 15) score -= 45;
+      if (isAnime && cand.sizeBytes >= 900 * 1024 ** 2 && cand.sizeBytes <= (wants4k ? 12 : 4.5) * 1024 ** 3) score += 40;
+      if (isAnime && !wants4k && cand.sizeBytes > 5 * 1024 ** 3 && (cand.seeders || 0) < 15) score -= 45;
     }
 
     scored.push({
@@ -576,6 +636,9 @@ export function scoreAndFilterCandidates(candidates, context) {
       isPack,
       score,
       resolution: langInfo.resolution,
+      codecTags: langInfo.codecTags,
+      displayTitle: langInfo.displayTitle,
+      subFileTitle: langInfo.subFileTitle,
       languageBadges: langInfo.badges,
     });
   }

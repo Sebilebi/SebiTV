@@ -256,19 +256,35 @@ test('Servidor API y SQLite arrancan y guardan ajustes dinámicos correctamente'
     assert.match(rawText, /Temporada 2 Capítulo 8/);
     assert.match(rawText, /\[USER\]/);
 
-    // Verificar guardado y lectura de perfiles separados de idioma (Anime vs Series/Películas)
+    // Verificar guardado y lectura de perfiles separados de idioma y calidad de vídeo (Anime vs Series/Películas)
     const prefSaveRes = await fetch(`${baseUrl}/api/preferences`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        anime: { audioPrimary: 'ja', audioSecondary: 'es-ES', subPrimary: 'es-ES', subSecondary: 'es-419' },
-        regular: { audioPrimary: 'es-ES', audioSecondary: 'none', subPrimary: 'off' },
+        anime: {
+          audioPrimary: 'ja',
+          audioSecondary: 'es-ES',
+          subPrimary: 'es-ES',
+          subSecondary: 'es-419',
+          videoQuality: '720p',
+          allowQualityFallback: true,
+        },
+        regular: {
+          audioPrimary: 'es-ES',
+          audioSecondary: 'none',
+          subPrimary: 'off',
+          videoQuality: 'best',
+          allowQualityFallback: false,
+        },
       }),
     });
     assert.equal(prefSaveRes.status, 200);
     const prefGet = await (await fetch(`${baseUrl}/api/preferences`)).json();
     assert.equal(prefGet.preferences.anime.audioPrimary, 'ja');
+    assert.equal(prefGet.preferences.anime.videoQuality, '720p');
     assert.equal(prefGet.preferences.regular.subPrimary, 'off');
+    assert.equal(prefGet.preferences.regular.videoQuality, 'best');
+    assert.equal(prefGet.preferences.regular.allowQualityFallback, false);
   } finally {
     engine.stop();
     await new Promise((resolve) => server.close(resolve));
@@ -792,4 +808,87 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
     year: 2012,
   });
   assert.match(hgRanked[0].title, /1\.63 GB/); // Evita el BDRemux gigante de 38.57 GB cuando existe versión ligera activa
+
+  // 12. v1.6.0: Preferencias de calidad de vídeo por perfil (720p, Mejor resolución posible 4K > 1080p, modo estricto sin respaldo y metadatos limpios para Lupa)
+  const multiResMoviePool = [
+    {
+      source: 'imdb:Wolfmax4k',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 4k — Dune Parte Dos (2024) [4K UHD 2160p HEVC HDR10][Castellano] | Dune2_2160p.mkv | 👤 14 💾 18.4 GB ⚙️ Wolfmax4k | 🇪🇸',
+      seeders: 14,
+      sizeBytes: 18.4e9,
+    },
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — Dune Parte Dos (2024) [BluRay 1080p x264][Castellano] | Dune2_1080p.mkv | 👤 45 💾 4.8 GB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 45,
+      sizeBytes: 4.8e9,
+    },
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 720p — Dune Parte Dos (2024) [MicroHD 720p][Castellano] | Dune2_720p.mkv | 👤 16 💾 2.1 GB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 16,
+      sizeBytes: 2.1e9,
+    },
+  ];
+
+  // a) Con calidad por defecto '1080p' -> gana 1080p
+  const duneDefault = scoreAndFilterCandidates(multiResMoviePool, {
+    isAnime: false,
+    mediaType: 'movie',
+    acceptedTitles: ['Dune: Parte Dos', 'Dune Part Two'],
+    year: 2024,
+  });
+  assert.equal(duneDefault[0].resolution, '1080p');
+  assert.equal(duneDefault[0].displayTitle, 'Dune Parte Dos (2024) [BluRay 1080p x264][Castellano]');
+  assert.equal(duneDefault[0].subFileTitle, 'Dune2_1080p.mkv');
+  assert.ok(duneDefault[0].codecTags.includes('BluRay'));
+
+  // b) Con 'best' (Mejor resolución posible) -> gana 4K UHD (18.4 GB HEVC HDR) sin ser penalizado
+  const duneBest = scoreAndFilterCandidates(multiResMoviePool, {
+    isAnime: false,
+    mediaType: 'movie',
+    acceptedTitles: ['Dune: Parte Dos', 'Dune Part Two'],
+    year: 2024,
+    preferences: { regular: { videoQuality: 'best', allowQualityFallback: true } },
+  });
+  assert.equal(duneBest[0].resolution, '4K');
+  assert.ok(duneBest[0].codecTags.includes('HEVC'));
+  assert.ok(duneBest[0].codecTags.includes('HDR'));
+
+  // c) Con '720p' -> gana 720p aunque 1080p tenga más semillas
+  const dune720 = scoreAndFilterCandidates(multiResMoviePool, {
+    isAnime: false,
+    mediaType: 'movie',
+    acceptedTitles: ['Dune: Parte Dos', 'Dune Part Two'],
+    year: 2024,
+    preferences: { regular: { videoQuality: '720p', allowQualityFallback: true } },
+  });
+  assert.equal(dune720[0].resolution, '720p');
+
+  // d) Modo estricto (allowQualityFallback: false): si exige '4k' y solo existen 1080p/720p -> descarta ambos (0 resultados)
+  const duneStrict4kMissing = scoreAndFilterCandidates(multiResMoviePool.slice(1), {
+    isAnime: false,
+    mediaType: 'movie',
+    acceptedTitles: ['Dune: Parte Dos', 'Dune Part Two'],
+    year: 2024,
+    preferences: { regular: { videoQuality: '4k', allowQualityFallback: false } },
+  });
+  assert.equal(duneStrict4kMissing.length, 0);
+
+  // e) En modo Lupa (allLanguages: true) devuelve siempre todas las calidades sin bloquear por calidad estricta
+  const duneLupaAll = scoreAndFilterCandidates(multiResMoviePool.slice(1), {
+    isAnime: false,
+    mediaType: 'movie',
+    acceptedTitles: ['Dune: Parte Dos', 'Dune Part Two'],
+    year: 2024,
+    allLanguages: true,
+    preferences: { regular: { videoQuality: '4k', allowQualityFallback: false } },
+  });
+  assert.equal(duneLupaAll.length, 2);
 });

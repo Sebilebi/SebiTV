@@ -109,7 +109,7 @@
         <span>⬇</span>
         <span id="sebitv-dl-count" class="sebitv-badge-count" style="display:none">0</span>
       </button>
-      <button class="sebitv-pill-btn secondary" id="sebitv-open-prefs" title="Preferencias de Idioma y Subtítulos">
+      <button class="sebitv-pill-btn secondary" id="sebitv-open-prefs" title="Preferencias de Idioma, Subtítulos y Calidad de Vídeo">
         <span>👤</span>
       </button>
       <button class="sebitv-pill-btn secondary" id="sebitv-open-settings" title="Estado y ajustes de SebiTV">
@@ -165,7 +165,7 @@
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-home">Catálogo</button>
           <input type="search" class="sebitv-search-input" id="sebitv-global-search" placeholder="Buscar película, serie o anime en todo el catálogo...">
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-dl">⬇ Descargas</button>
-          <button class="sebitv-pill-btn secondary" id="sebitv-nav-prefs">👤 Idiomas</button>
+          <button class="sebitv-pill-btn secondary" id="sebitv-nav-prefs">👤 Preferencias</button>
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-logs">📋 Logs</button>
           <button class="sebitv-pill-btn secondary" id="sebitv-nav-cfg">⚙</button>
           <button class="sebitv-pill-btn danger" id="sebitv-close-modal">✕</button>
@@ -848,10 +848,47 @@
     }
   }
 
+  function formatBytesHuman(bytes = 0, fallbackStr = '') {
+    if (fallbackStr && String(fallbackStr).trim()) return String(fallbackStr).trim();
+    if (!bytes || bytes <= 0) return '';
+    if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+    if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+
+  function cleanCandidateLabels(c) {
+    if (c.displayTitle) {
+      return { displayTitle: c.displayTitle, subFileTitle: c.subFileTitle || '' };
+    }
+    const stripped = String(c.title || '').replace(/^Torrentio[^—]*—\s*/i, '').trim();
+    const parts = stripped
+      .split(/\s*\|\s*/)
+      .map((s) => s.trim())
+      .filter((s) => s && !/^(?:👤|💾|⚙️)/.test(s));
+    return {
+      displayTitle: parts[0] || stripped,
+      subFileTitle: parts.length > 1 && parts[1] !== parts[0] ? parts[1] : '',
+    };
+  }
+
+  function cleanTrackerLabel(source = '') {
+    return String(source || 'DHT').replace(/^imdb:/i, '').replace(/^knaben:/i, 'Knaben · ');
+  }
+
   async function showCandidatePicker(kind, tmdbId, episodeId) {
     const slot = document.getElementById('sebitv-candidate-picker-slot');
     if (!slot) return;
-    slot.innerHTML = `<div class="sebitv-native-banner">🔎 Explorando TODOS los idiomas, audios y subtítulos disponibles...</div>`;
+    slot.innerHTML = `
+      <div class="sebitv-lupa-panel" style="padding:18px;display:flex;align-items:center;gap:12px;">
+        <span style="font-size:20px;">🔎</span>
+        <div>
+          <div style="font-weight:700;font-size:14px;">Explorando versiones en todos los idiomas y calidades...</div>
+          <div style="color:var(--sebi-muted);font-size:12px;">Consultando trackers simultáneamente (4K, 1080p, 720p, Castellano, Japonés, VOSE, Multi-Audio)</div>
+        </div>
+      </div>
+    `;
+    slot.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
     try {
       const endpoint =
         kind === 'movie'
@@ -863,89 +900,277 @@
         return;
       }
 
-      const filters = [
-        { id: 'all', label: 'Todos los idiomas' },
+      const langFilters = [
+        { id: 'all', label: 'Todos' },
         { id: 'Castellano', label: '🇪🇸 Castellano' },
         { id: 'Latino', label: '🇲🇽 Latino' },
         { id: 'Japonés', label: '🇯🇵 Japonés' },
         { id: 'Inglés', label: '🇬🇧 Inglés' },
         { id: 'Sub Español', label: '💬 Sub Español' },
         { id: 'MultiSub', label: '💬 MultiSub' },
+        { id: 'Multi-Audio', label: '🌐 Multi-Audio' },
       ];
 
-      const renderFiltered = (activeFilter = 'all') => {
-        const filtered =
-          activeFilter === 'all'
-            ? candidates
-            : candidates.filter((c) =>
-                (c.languageBadges || []).some((b) => b.toLowerCase().includes(activeFilter.toLowerCase()))
-              );
+      const qualityFilters = [
+        { id: 'all', label: 'Todas' },
+        { id: '4K', label: '💎 4K UHD' },
+        { id: '1080p', label: '🎯 1080p' },
+        { id: '720p', label: '⚡ 720p' },
+        { id: 'SD', label: '📦 SD' },
+      ];
 
-        slot.innerHTML = `
-          <div style="background:var(--sebi-surface);border:1px solid var(--sebi-accent);border-radius:12px;padding:14px;margin-bottom:16px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-              <div style="font-weight:700;">🔍 Lupa Multi-Idioma (${filtered.length} de ${candidates.length} versiones encontradas)</div>
-              <button class="sebitv-pill-btn secondary" id="sebitv-close-lupa" style="padding:4px 10px;font-size:11px;">Cerrar lupa ✕</button>
+      const resRank = { '4K': 4, '1080p': 3, '720p': 2, SD: 1 };
+      const lupaState = {
+        lang: 'all',
+        quality: 'all',
+        sortBy: 'score',
+        query: '',
+      };
+
+      const matchesLang = (c, langId) =>
+        langId === 'all' ||
+        (c.languageBadges || []).some((b) => b.toLowerCase().includes(langId.toLowerCase()));
+
+      const matchesQuality = (c, qId) =>
+        qId === 'all' || String(c.resolution || 'SD').toUpperCase() === qId.toUpperCase();
+
+      const matchesQuery = (c, qText) => {
+        if (!qText) return true;
+        const hay = `${c.title || ''} ${(c.codecTags || []).join(' ')} ${(c.languageBadges || []).join(' ')} ${
+          c.source || ''
+        }`.toLowerCase();
+        return qText
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(Boolean)
+          .every((tok) => hay.includes(tok));
+      };
+
+      slot.innerHTML = `
+        <div class="sebitv-lupa-panel">
+          <div class="sebitv-lupa-header">
+            <div>
+              <div class="sebitv-lupa-title">
+                <span>🔍 Explorador de Versiones</span>
+                <span class="sebitv-lupa-counter" id="sebitv-lupa-counter"></span>
+              </div>
+              <div class="sebitv-lupa-subtitle">
+                Filtra por resolución o idioma y ordena por rapidez (semillas) o peso antes de descargar.
+              </div>
             </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
-              ${filters
-                .map(
-                  (f) =>
-                    `<button class="sebitv-pill-btn ${activeFilter === f.id ? '' : 'secondary'}" data-lupa-filter="${esc(
-                      f.id
-                    )}" style="padding:5px 11px;font-size:12px;">${esc(f.label)}</button>`
-                )
-                .join('')}
-            </div>
-            <div style="max-height:380px;overflow-y:auto;padding-right:4px;">
-              ${
-                filtered.length === 0
-                  ? '<div style="padding:14px;color:var(--sebi-muted);font-size:13px;">No hay torrents con ese filtro concreto. Prueba con otro filtro arriba.</div>'
-                  : filtered
-                      .slice(0, 35)
-                      .map((c) => {
-                        const origIdx = candidates.indexOf(c);
-                        return `
-                          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--sebi-border);font-size:12px;">
-                            <div style="min-width:0;flex:1;">
-                              <div style="font-weight:600;word-break:break-word;margin-bottom:4px;">${esc(c.title)}</div>
-                              <div>
-                                <span class="sebitv-lang-chip" style="background:rgba(46,204,113,0.16);color:#6ef3a5;border-color:rgba(46,204,113,0.35);">${esc(
-                                  c.resolution || 'HD'
-                                )}</span>
-                                ${(c.languageBadges || [])
-                                  .map((b) => `<span class="sebitv-lang-chip">${esc(b)}</span>`)
-                                  .join('')}
-                              </div>
-                              <div style="color:var(--sebi-muted);margin-top:3px;">${esc(c.source)} ${
-                                c.sizeStr ? `• ${esc(c.sizeStr)}` : ''
-                              } • 🌱 ${c.seeders} semillas ${
-                                c.isPack ? '• 📦 Pack (descarga solo este capítulo)' : ''
-                              }</div>
-                            </div>
-                            <button class="sebitv-pill-btn" data-pick-idx="${origIdx}">⬇ Descargar</button>
-                          </div>
-                        `;
-                      })
-                      .join('')
-              }
+            <div style="display:flex;align-items:center;gap:8px;">
+              <button class="sebitv-pill-btn secondary" id="sebitv-reset-lupa" style="display:none;padding:6px 12px;font-size:12px;">↺ Limpiar filtros</button>
+              <button class="sebitv-pill-btn danger" id="sebitv-close-lupa" style="padding:6px 12px;font-size:12px;">Cerrar ✕</button>
             </div>
           </div>
-        `;
 
-        slot.querySelector('#sebitv-close-lupa').onclick = () => {
-          slot.innerHTML = '';
-        };
-        slot.querySelectorAll('[data-lupa-filter]').forEach((fb) => {
-          fb.onclick = () => renderFiltered(fb.getAttribute('data-lupa-filter'));
+          <div class="sebitv-lupa-toolbar">
+            <div class="sebitv-lupa-search-row">
+              <div class="sebitv-lupa-sort-wrap">
+                <label for="sebitv-lupa-sort">Ordenar por</label>
+                <select id="sebitv-lupa-sort" class="sebitv-select sebitv-lupa-sort-select">
+                  <option value="score">⭐ Recomendado (Equilibrio ideal)</option>
+                  <option value="seeders_desc">🌱 Más semillas (Descarga más rápida)</option>
+                  <option value="res_desc">💎 Mayor resolución (4K → SD)</option>
+                  <option value="size_asc">⚡ Menor tamaño (Más ligero)</option>
+                  <option value="size_desc">🎬 Mayor tamaño (Máximo bitrate)</option>
+                </select>
+              </div>
+              <div class="sebitv-lupa-query-wrap">
+                <label for="sebitv-lupa-query">Filtro rápido</label>
+                <input type="search" id="sebitv-lupa-query" class="sebitv-lupa-query-input" placeholder="Buscar códec (HEVC, x265, AV1, HDR), grupo o tracker...">
+              </div>
+            </div>
+
+            <div class="sebitv-lupa-filter-group">
+              <span class="sebitv-lupa-filter-label">Calidad</span>
+              <div class="sebitv-lupa-pills" id="sebitv-lupa-quality-pills"></div>
+            </div>
+
+            <div class="sebitv-lupa-filter-group">
+              <span class="sebitv-lupa-filter-label">Idioma</span>
+              <div class="sebitv-lupa-pills" id="sebitv-lupa-lang-pills"></div>
+            </div>
+          </div>
+
+          <div class="sebitv-lupa-list" id="sebitv-lupa-list"></div>
+        </div>
+      `;
+
+      const counterEl = slot.querySelector('#sebitv-lupa-counter');
+      const resetBtn = slot.querySelector('#sebitv-reset-lupa');
+      const closeBtn = slot.querySelector('#sebitv-close-lupa');
+      const sortEl = slot.querySelector('#sebitv-lupa-sort');
+      const queryEl = slot.querySelector('#sebitv-lupa-query');
+      const qualityPillsEl = slot.querySelector('#sebitv-lupa-quality-pills');
+      const langPillsEl = slot.querySelector('#sebitv-lupa-lang-pills');
+      const listEl = slot.querySelector('#sebitv-lupa-list');
+
+      const updateResults = () => {
+        // Calcular contadores dinámicos para que el usuario vea qué hay disponible antes de pulsar
+        const qualityPool = candidates.filter(
+          (c) => matchesLang(c, lupaState.lang) && matchesQuery(c, lupaState.query)
+        );
+        const langPool = candidates.filter(
+          (c) => matchesQuality(c, lupaState.quality) && matchesQuery(c, lupaState.query)
+        );
+
+        qualityPillsEl.innerHTML = qualityFilters
+          .map((qf) => {
+            const count = qf.id === 'all' ? qualityPool.length : qualityPool.filter((c) => matchesQuality(c, qf.id)).length;
+            const active = lupaState.quality === qf.id;
+            const emptyCls = count === 0 && !active ? 'is-empty' : '';
+            return `<button type="button" class="sebitv-filter-chip ${active ? 'active' : ''} ${emptyCls}" data-q-filter="${esc(
+              qf.id
+            )}"><span>${esc(qf.label)}</span><span class="sebitv-chip-num">${count}</span></button>`;
+          })
+          .join('');
+
+        langPillsEl.innerHTML = langFilters
+          .map((lf) => {
+            const count = lf.id === 'all' ? langPool.length : langPool.filter((c) => matchesLang(c, lf.id)).length;
+            if (lf.id === 'Multi-Audio' && count === 0 && lupaState.lang !== lf.id) return '';
+            const active = lupaState.lang === lf.id;
+            const emptyCls = count === 0 && !active ? 'is-empty' : '';
+            return `<button type="button" class="sebitv-filter-chip ${active ? 'active' : ''} ${emptyCls}" data-l-filter="${esc(
+              lf.id
+            )}"><span>${esc(lf.label)}</span><span class="sebitv-chip-num">${count}</span></button>`;
+          })
+          .join('');
+
+        const filtered = candidates.filter(
+          (c) =>
+            matchesLang(c, lupaState.lang) &&
+            matchesQuality(c, lupaState.quality) &&
+            matchesQuery(c, lupaState.query)
+        );
+
+        const sorted = [...filtered].sort((a, b) => {
+          if (lupaState.sortBy === 'seeders_desc') return (b.seeders || 0) - (a.seeders || 0) || b.score - a.score;
+          if (lupaState.sortBy === 'res_desc') {
+            const rDiff = (resRank[b.resolution] || 1) - (resRank[a.resolution] || 1);
+            return rDiff !== 0 ? rDiff : (b.seeders || 0) - (a.seeders || 0);
+          }
+          if (lupaState.sortBy === 'size_asc') {
+            const sa = a.sizeBytes > 0 ? a.sizeBytes : Number.MAX_SAFE_INTEGER;
+            const sb = b.sizeBytes > 0 ? b.sizeBytes : Number.MAX_SAFE_INTEGER;
+            return sa - sb || (b.seeders || 0) - (a.seeders || 0);
+          }
+          if (lupaState.sortBy === 'size_desc') {
+            return (b.sizeBytes || 0) - (a.sizeBytes || 0) || (b.seeders || 0) - (a.seeders || 0);
+          }
+          return b.score - a.score;
         });
-        slot.querySelectorAll('[data-pick-idx]').forEach((b) => {
+
+        const hasActiveFilter =
+          lupaState.lang !== 'all' || lupaState.quality !== 'all' || Boolean(lupaState.query.trim());
+        resetBtn.style.display = hasActiveFilter ? 'inline-flex' : 'none';
+        counterEl.textContent = `${sorted.length} de ${candidates.length} opciones`;
+
+        if (sorted.length === 0) {
+          listEl.innerHTML = `
+            <div class="sebitv-lupa-empty">
+              <div style="font-size:24px;margin-bottom:6px;">🕵️</div>
+              <div style="font-weight:600;color:var(--sebi-text);margin-bottom:4px;">Ninguna versión coincide con estos filtros</div>
+              <div>Prueba cambiando la calidad, eligiendo "Todos" en idioma o limpiando la búsqueda.</div>
+            </div>
+          `;
+        } else {
+          listEl.innerHTML = sorted
+            .slice(0, 50)
+            .map((c, idx) => {
+              const origIdx = candidates.indexOf(c);
+              const { displayTitle, subFileTitle } = cleanCandidateLabels(c);
+              const res = String(c.resolution || 'SD');
+              const resCls =
+                res === '4K' ? 'res-4k' : res === '1080p' ? 'res-1080p' : res === '720p' ? 'res-720p' : 'res-sd';
+              const seeds = Number(c.seeders || 0);
+              const seedCls = seeds >= 20 ? 'seeds-high' : seeds >= 5 ? 'seeds-mid' : 'seeds-low';
+              const seedDot = seeds >= 20 ? '🟢' : seeds >= 5 ? '🟡' : '🟠';
+              const sizeLabel = formatBytesHuman(c.sizeBytes, c.sizeStr);
+              const trackerLabel = cleanTrackerLabel(c.source);
+              const isTopPick = lupaState.sortBy === 'score' && idx === 0 && !hasActiveFilter;
+
+              return `
+                <div class="sebitv-lupa-card ${isTopPick ? 'is-top' : ''}">
+                  <div class="sebitv-res-badge ${resCls}">
+                    <span class="sebitv-res-main">${esc(res)}</span>
+                    <span class="sebitv-res-sub">${
+                      res === '4K' ? 'UHD' : res === '1080p' ? 'Full HD' : res === '720p' ? 'HD' : 'Estándar'
+                    }</span>
+                  </div>
+
+                  <div class="sebitv-lupa-card-body">
+                    <div class="sebitv-lupa-card-title" title="${esc(c.title)}">
+                      ${isTopPick ? '<span class="sebitv-top-tag">⭐ Recomendada</span>' : ''}
+                      <span>${esc(displayTitle)}</span>
+                    </div>
+                    ${
+                      subFileTitle
+                        ? `<div class="sebitv-lupa-subfile" title="${esc(subFileTitle)}">📄 ${esc(subFileTitle)}</div>`
+                        : ''
+                    }
+                    <div class="sebitv-lupa-badges-row">
+                      ${(c.languageBadges || [])
+                        .map((b) => {
+                          const isCast = b.includes('Castellano');
+                          return `<span class="sebitv-lang-chip ${isCast ? 'is-castellano' : ''}">${esc(b)}</span>`;
+                        })
+                        .join('')}
+                      ${(c.codecTags || [])
+                        .map(
+                          (tag) =>
+                            `<span class="sebitv-tech-chip ${tag === 'BDRemux' ? 'is-heavy' : ''}">${esc(tag)}</span>`
+                        )
+                        .join('')}
+                    </div>
+                    <div class="sebitv-lupa-meta-row">
+                      <span class="sebitv-meta-pill ${seedCls}">${seedDot} ${seeds} ${
+                        seeds === 1 ? 'semilla' : 'semillas'
+                      }</span>
+                      ${sizeLabel ? `<span class="sebitv-meta-pill">💾 ${esc(sizeLabel)}</span>` : ''}
+                      <span class="sebitv-meta-pill">🏷 ${esc(trackerLabel)}</span>
+                      ${
+                        c.isPack
+                          ? `<span class="sebitv-meta-pill is-pack">📦 Pack (baja solo este archivo)</span>`
+                          : ''
+                      }
+                    </div>
+                  </div>
+
+                  <div class="sebitv-lupa-card-action">
+                    <button class="sebitv-pill-btn" data-pick-idx="${origIdx}">⬇ Descargar</button>
+                  </div>
+                </div>
+              `;
+            })
+            .join('');
+        }
+
+        qualityPillsEl.querySelectorAll('[data-q-filter]').forEach((btn) => {
+          btn.onclick = () => {
+            const clicked = btn.getAttribute('data-q-filter');
+            lupaState.quality = lupaState.quality === clicked && clicked !== 'all' ? 'all' : clicked;
+            updateResults();
+          };
+        });
+
+        langPillsEl.querySelectorAll('[data-l-filter]').forEach((btn) => {
+          btn.onclick = () => {
+            const clicked = btn.getAttribute('data-l-filter');
+            lupaState.lang = lupaState.lang === clicked && clicked !== 'all' ? 'all' : clicked;
+            updateResults();
+          };
+        });
+
+        listEl.querySelectorAll('[data-pick-idx]').forEach((b) => {
           b.onclick = async () => {
             const chosen = candidates[Number(b.getAttribute('data-pick-idx'))];
-            uiLog('ui.lupa_select_candidate', `Eligió manualmente desde Lupa: "${chosen.title}"`, {
+            uiLog('ui.lupa_select_candidate', `Eligió manualmente desde Lupa: "${chosen.displayTitle || chosen.title}"`, {
               kind,
               tmdbId,
               episodeId,
+              resolution: chosen.resolution,
               languages: chosen.languageBadges,
               source: chosen.source,
             });
@@ -968,7 +1193,28 @@
         });
       };
 
-      renderFiltered('all');
+      closeBtn.onclick = () => {
+        slot.innerHTML = '';
+      };
+      resetBtn.onclick = () => {
+        lupaState.lang = 'all';
+        lupaState.quality = 'all';
+        lupaState.sortBy = 'score';
+        lupaState.query = '';
+        sortEl.value = 'score';
+        queryEl.value = '';
+        updateResults();
+      };
+      sortEl.onchange = () => {
+        lupaState.sortBy = sortEl.value;
+        updateResults();
+      };
+      queryEl.oninput = () => {
+        lupaState.query = queryEl.value;
+        updateResults();
+      };
+
+      updateResults();
     } catch (err) {
       slot.innerHTML = `<div class="sebitv-native-banner" style="color:var(--sebi-red)">${esc(err.message)}</div>`;
     }
@@ -1051,6 +1297,14 @@
       { v: 'none', l: '— Ninguno (No aceptar otro)' },
     ];
 
+    const qualityOpts = [
+      { v: 'best', l: '✨ Mejor resolución posible (4K UHD > 1080p > 720p)' },
+      { v: '4k', l: '💎 4K UHD (2160p)' },
+      { v: '1080p', l: '🎯 1080p Full HD (Recomendado: calidad / espacio)' },
+      { v: '720p', l: '⚡ 720p HD (Ligero y rápido, ahorra espacio)' },
+      { v: 'sd', l: '📦 SD / 480p (Mínimo espacio en disco)' },
+    ];
+
     const buildSelect = (id, list, currentVal, disallowNone = false) => `
       <select class="sebitv-select" id="${id}">
         ${list
@@ -1066,14 +1320,24 @@
       const rg = preferences.regular || {};
 
       body.innerHTML = `
-        <div class="sebitv-section-title">Preferencias de Idioma y Subtítulos por Tipo de Contenido</div>
+        <div class="sebitv-section-title">Preferencias de Calidad de Vídeo, Idioma y Subtítulos</div>
         <p style="color:var(--sebi-muted);font-size:13px;margin-top:-4px;margin-bottom:16px;">
-          El botón <strong>⬇ Descargar</strong> aplica automáticamente estas preferencias separadas. Si un día quieres bajar un capítulo concreto en otro idioma cualquiera, usa el botón de la <strong>🔍 Lupa</strong>.
+          El botón <strong>⬇ Descargar</strong> elige automáticamente el idioma, subtítulo y resolución que configures aquí para cada categoría. Si en un título puntual quieres elegir otra versión a mano, pulsa la <strong>🔍 Lupa</strong>.
         </p>
 
         <div class="sebitv-pref-grid">
           <div class="sebitv-pref-card">
             <h3 style="margin:0 0 12px;color:var(--sebi-accent);">🇯🇵 Anime (Series, OVAs y Películas de Anime)</h3>
+            <div class="sebitv-pref-quality-box">
+              <div class="sebitv-form-group" style="margin-bottom:8px;">
+                <label>🎬 Calidad de Vídeo Preferida</label>
+                ${buildSelect('pref-an-quality', qualityOpts, an.videoQuality || '1080p', true)}
+              </div>
+              <label class="sebitv-checkbox-label">
+                <input type="checkbox" id="pref-an-q-fallback" ${an.allowQualityFallback !== false ? 'checked' : ''}>
+                <span>Permitir otra resolución de respaldo si no existe la elegida en mi idioma</span>
+              </label>
+            </div>
             <div class="sebitv-form-group">
               <label>Audio Primario (1ª opción)</label>
               ${buildSelect('pref-an-aud1', audioOpts, an.audioPrimary, true)}
@@ -1099,14 +1363,24 @@
               <label>Otros Subtítulos aceptados (3ª opción)</label>
               ${buildSelect('pref-an-sub3', subOpts, an.subOther)}
             </div>
-            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--sebi-text);cursor:pointer;margin-top:8px;">
+            <label class="sebitv-checkbox-label" style="margin-top:8px;">
               <input type="checkbox" id="pref-an-dub-nosub" ${an.allowSpanishAudioWithoutSubs ? 'checked' : ''}>
-              Si el episodio ya viene doblado con Audio Español Castellano, aceptarlo sin exigir subtítulos
+              <span>Si el episodio ya viene doblado con Audio Español Castellano, aceptarlo sin exigir subtítulos</span>
             </label>
           </div>
 
           <div class="sebitv-pref-card">
             <h3 style="margin:0 0 12px;color:var(--sebi-green);">🎬 Series y Películas Comerciales (No-Anime)</h3>
+            <div class="sebitv-pref-quality-box">
+              <div class="sebitv-form-group" style="margin-bottom:8px;">
+                <label>🎬 Calidad de Vídeo Preferida</label>
+                ${buildSelect('pref-rg-quality', qualityOpts, rg.videoQuality || '1080p', true)}
+              </div>
+              <label class="sebitv-checkbox-label">
+                <input type="checkbox" id="pref-rg-q-fallback" ${rg.allowQualityFallback !== false ? 'checked' : ''}>
+                <span>Permitir otra resolución de respaldo si no existe la elegida en mi idioma</span>
+              </label>
+            </div>
             <div class="sebitv-form-group">
               <label>Audio Primario (1ª opción)</label>
               ${buildSelect('pref-rg-aud1', audioOpts, rg.audioPrimary, true)}
@@ -1135,13 +1409,15 @@
           </div>
         </div>
 
-        <button class="sebitv-pill-btn" id="sebitv-save-prefs">Guardar Preferencias de Idioma</button>
+        <button class="sebitv-pill-btn" id="sebitv-save-prefs">Guardar Preferencias</button>
         <span id="sebitv-prefs-msg" style="margin-left:12px;font-size:13px;color:var(--sebi-green);"></span>
       `;
 
       document.getElementById('sebitv-save-prefs').onclick = async () => {
         const payload = {
           anime: {
+            videoQuality: document.getElementById('pref-an-quality').value,
+            allowQualityFallback: document.getElementById('pref-an-q-fallback').checked,
             audioPrimary: document.getElementById('pref-an-aud1').value,
             audioSecondary: document.getElementById('pref-an-aud2').value,
             audioOther: document.getElementById('pref-an-aud3').value,
@@ -1151,6 +1427,8 @@
             allowSpanishAudioWithoutSubs: document.getElementById('pref-an-dub-nosub').checked,
           },
           regular: {
+            videoQuality: document.getElementById('pref-rg-quality').value,
+            allowQualityFallback: document.getElementById('pref-rg-q-fallback').checked,
             audioPrimary: document.getElementById('pref-rg-aud1').value,
             audioSecondary: document.getElementById('pref-rg-aud2').value,
             audioOther: document.getElementById('pref-rg-aud3').value,
@@ -1161,7 +1439,8 @@
           },
         };
         await api('/api/preferences', { method: 'POST', body: JSON.stringify(payload) });
-        document.getElementById('sebitv-prefs-msg').textContent = '✔ Preferencias guardadas correctamente';
+        uiLog('ui.save_preferences', 'Guardó preferencias de idioma y calidad de vídeo', payload);
+        document.getElementById('sebitv-prefs-msg').textContent = '✔ Preferencias de idioma y calidad guardadas';
       };
     } catch (err) {
       body.innerHTML = `<p style="color:var(--sebi-red)">${esc(err.message)}</p>`;
