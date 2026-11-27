@@ -268,9 +268,21 @@ export function inspectReleaseLanguages(rawTitle = '') {
   else if (hasEnglishSub) badges.push('💬 Sub Inglés');
 
   let resolution = 'SD';
-  if (/\b(2160p|4k|uhd|3840x2160)\b/i.test(t)) resolution = '4K';
-  else if (/\b(1080p|1080i|1920x1080|fhd)\b/i.test(t)) resolution = '1080p';
-  else if (/\b(720p|1280x720|hdrip|microhd)\b/i.test(t)) resolution = '720p';
+  if (/\b(2160[pi]?|3840x2160|uhd)\b|\b4k(?:web-?rip|web-?dl|microhd|hdr\w*|uhd|bdremux|remux|\b)/i.test(t)) {
+    resolution = '4K';
+  } else if (
+    /\b(1080[pi]|1920x1080|fhd)\b|(?:x26[45]|h\.?26[45]|hevc|avc|bluray|bdrip|bd|web-?dl|webrip|\[)[\s._-]*1080(?:\]|\b)/i.test(
+      t
+    )
+  ) {
+    resolution = '1080p';
+  } else if (
+    /\b(720[pi]|1280x720|hdrip|microhd)\b|(?:x26[45]|h\.?26[45]|hevc|bluray|bd|web-?dl|webrip|\[)[\s._-]*720(?:\]|\b)/i.test(
+      t
+    )
+  ) {
+    resolution = '720p';
+  }
 
   const codecTags = [];
   if (/\bav1\b/i.test(t)) codecTags.push('AV1');

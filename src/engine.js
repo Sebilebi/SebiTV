@@ -789,6 +789,9 @@ export class SebiEngine {
           manualOverride: Boolean(manualCandidate),
           progress: Math.round((targetFile.progress || 0) * 100),
         });
+        if ((targetFile.progress || 0) < 0.005) {
+          this.stalledTracker.set(`ep:${ep.id}:${hash.toLowerCase()}`, Date.now());
+        }
 
         if (isPack) {
           await this.#syncPackPriorities(hash);
@@ -971,6 +974,9 @@ export class SebiEngine {
           manualOverride: Boolean(manualCandidate),
           progress: Math.round((movieFile.progress || 0) * 100),
         });
+        if ((movieFile.progress || 0) < 0.005) {
+          this.stalledTracker.set(`mov:${item.id}:${hash.toLowerCase()}`, Date.now());
+        }
         return this.getRichCatalogItem(item.id);
       } catch (err) {
         lastErr = err;
@@ -1028,10 +1034,19 @@ export class SebiEngine {
       const pct = rawProg >= 1 ? 100 : Math.min(99.9, Math.floor(rawProg * 1000) / 10);
       const displayPct = rawProg >= 1 ? 100 : Math.min(99, Math.floor(rawProg * 100));
 
-      const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
-      const stallKey = `ep:${ep.id}:${ep.torrent_hash}`;
+      const isSeedingState = [
+        'uploading',
+        'stalledUP',
+        'queuedUP',
+        'pausedUP',
+        'stoppedUP',
+        'checkingUP',
+      ].includes(tor.state);
+      const stallKey = `ep:${ep.id}:${ep.torrent_hash.toLowerCase()}`;
       const dlSpeed = tor.dlspeed || 0;
-      const isDeadStalled = !isSeedingState && rawProg < 0.998 && (tor.state === 'stalledDL' || dlSpeed < 15 * 1024);
+      const isStuckAtZero = !isSeedingState && rawProg < 0.005 && dlSpeed < 240 * 1024;
+      const isDeadStalled =
+        !isSeedingState && rawProg < 0.998 && (isStuckAtZero || tor.state === 'stalledDL' || dlSpeed < 15 * 1024);
       const isSlowCrawl =
         !isSeedingState &&
         !isDeadStalled &&
@@ -1061,7 +1076,7 @@ export class SebiEngine {
         continue;
       }
 
-      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 28000 : 38000) : 55000;
+      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 25000 : 38000) : 55000;
       if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
         this.stalledTracker.delete(stallKey);
         // Si no está muerto del todo (avanza lento a 15-160 KB/s), comprobar primero si existe otro candidato alternativo antes de abortarlo
@@ -1127,10 +1142,19 @@ export class SebiEngine {
 
       const rawProg = movieFile.progress || 0;
       const pct = rawProg >= 1 ? 100 : Math.min(99.9, Math.floor(rawProg * 1000) / 10);
-      const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
-      const stallKey = `mov:${movie.id}:${movie.torrent_hash}`;
+      const isSeedingState = [
+        'uploading',
+        'stalledUP',
+        'queuedUP',
+        'pausedUP',
+        'stoppedUP',
+        'checkingUP',
+      ].includes(tor.state);
+      const stallKey = `mov:${movie.id}:${movie.torrent_hash.toLowerCase()}`;
       const dlSpeed = tor.dlspeed || 0;
-      const isDeadStalled = !isSeedingState && rawProg < 0.998 && (tor.state === 'stalledDL' || dlSpeed < 15 * 1024);
+      const isStuckAtZero = !isSeedingState && rawProg < 0.005 && dlSpeed < 240 * 1024;
+      const isDeadStalled =
+        !isSeedingState && rawProg < 0.998 && (isStuckAtZero || tor.state === 'stalledDL' || dlSpeed < 15 * 1024);
       const isSlowCrawl =
         !isSeedingState &&
         !isDeadStalled &&
@@ -1159,7 +1183,7 @@ export class SebiEngine {
         continue;
       }
 
-      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 28000 : 38000) : 55000;
+      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 25000 : 38000) : 55000;
       if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
         this.stalledTracker.delete(stallKey);
         if (!isDeadStalled) {

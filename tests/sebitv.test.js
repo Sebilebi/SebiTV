@@ -1173,4 +1173,33 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(drStoneLupaS1.length, 1);
   assert.equal(drStoneLupaS1[0].title, '[Erai-raws] Dr. Stone - 10 [1080p][Multiple Subtitle].mkv');
+
+  // 20. v1.6.10 (Hallazgo The Mandalorian): reconoce etiquetas concatenadas "[4KWebRip]" como 4K y "x264 1080" / "[1080]" sin "p" como 1080p
+  const mandoResPool = [
+    {
+      source: 'imdb:Wolfmax4k',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio — The Mandalorian [4KWebRip][Cap.307][Castellano] | 👤 10 💾 4.2 GB ⚙️ Wolfmax4k | 🇪🇸',
+      seeders: 10,
+      sizeBytes: 4.2e9,
+    },
+    {
+      source: 'imdb:ThePirateBay',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio — The Mandalorian S03E07 x264 1080 Castellano | 👤 8 💾 1.8 GB ⚙️ ThePirateBay | 🇪🇸',
+      seeders: 8,
+      sizeBytes: 1.8e9,
+    },
+  ];
+  const mandoRes = scoreAndFilterCandidates(mandoResPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['The Mandalorian'],
+    seasonNumber: 3,
+    episodeNumber: 7,
+    allLanguages: true,
+  });
+  const resMap = Object.fromEntries(mandoRes.map((c) => [c.source, c.resolution]));
+  assert.equal(resMap['imdb:Wolfmax4k'], '4K');
+  assert.equal(resMap['imdb:ThePirateBay'], '1080p');
 });
