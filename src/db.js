@@ -30,7 +30,7 @@ export class SebiDatabase {
         original_title TEXT,
         search_titles_json TEXT NOT NULL DEFAULT '[]',
         related_movies_json TEXT NOT NULL DEFAULT '[]',
-        catalog_schema_ver INTEGER NOT NULL DEFAULT 2,
+        catalog_schema_ver INTEGER NOT NULL DEFAULT 3,
         year INTEGER,
         poster_url TEXT,
         backdrop_url TEXT,
@@ -205,7 +205,7 @@ export class SebiDatabase {
           tmdb_id, media_type, is_anime, anilist_id, imdb_id, tvdb_id,
           title, original_title, search_titles_json, related_movies_json, catalog_schema_ver, year, poster_url, backdrop_url,
           overview, folder_path, jellyfin_id, pinned, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(tmdb_id, media_type) DO UPDATE SET
           is_anime = excluded.is_anime,
           anilist_id = COALESCE(excluded.anilist_id, catalog_items.anilist_id),
@@ -215,7 +215,7 @@ export class SebiDatabase {
           original_title = excluded.original_title,
           search_titles_json = excluded.search_titles_json,
           related_movies_json = excluded.related_movies_json,
-          catalog_schema_ver = 2,
+          catalog_schema_ver = 3,
           year = excluded.year,
           poster_url = excluded.poster_url,
           backdrop_url = excluded.backdrop_url,

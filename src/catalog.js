@@ -158,8 +158,9 @@ export class CatalogService {
       this.#tmdbFetch('/discover/movie', {
         language: 'es-ES',
         sort_by: 'popularity.desc',
-        'primary_release_date.lte': todayIso,
-        'vote_count.gte': '20',
+        with_release_type: '4|5|6', // Solo Digital, BluRay/Físico o TV (excluye estrenos solo-cine o futuros)
+        'release_date.lte': todayIso,
+        'vote_count.gte': '60',
         include_adult: 'false',
         page: 1,
       }),
@@ -167,6 +168,7 @@ export class CatalogService {
         language: 'es-ES',
         sort_by: 'popularity.desc',
         'first_air_date.lte': todayIso,
+        'vote_count.gte': '40',
         without_genres: '16',
         page: 1,
       }),
@@ -174,6 +176,7 @@ export class CatalogService {
         language: 'es-ES',
         sort_by: 'popularity.desc',
         'first_air_date.lte': todayIso,
+        'vote_count.gte': '15',
         with_genres: '16',
         with_original_language: 'ja',
         page: 1,
@@ -183,7 +186,9 @@ export class CatalogService {
     const val = (idx) => (settled[idx].status === 'fulfilled' ? settled[idx].value : { results: [] });
     const isAlreadyReleased = (r) => {
       const d = r?.release_date || r?.first_air_date || '';
-      return Boolean(d && d <= todayIso);
+      if (!d || d > todayIso) return false;
+      const isAnim = (r.genre_ids || []).includes(16) && r.original_language === 'ja';
+      return (r.vote_count || 0) >= (isAnim ? 12 : 45);
     };
     const trendingAll = val(0);
     const popularMovies = val(1);
@@ -283,9 +288,13 @@ export class CatalogService {
     const tvdbId = data.external_ids?.tvdb_id || null;
 
     const searchTitleSet = new Set();
+    const isTvSeasonSpecificAlias = (s = '') =>
+      type === 'tv' && /\b(final\s+season|\d+(?:st|nd|rd|th)\s+season|season\s*\d+|part\s*\d+|\bhen\b)\b/i.test(s);
+
     const pushClean = (val) => {
       if (val && typeof val === 'string' && val.trim().length >= 2) {
         const trimmed = val.trim();
+        if (isTvSeasonSpecificAlias(trimmed)) return;
         // Aceptar únicamente alfabeto latino/ occidental (descartando kana/kanji/cirílico/hebreo/tailandés/árabe)
         if (/[a-zA-Z]/.test(trimmed) && /^[\p{Script=Latin}\d\s\p{P}\p{S}]+$/u.test(trimmed)) {
           searchTitleSet.add(trimmed);
@@ -316,18 +325,25 @@ export class CatalogService {
     let anilistId = null;
     if (isAnime) {
       const aniMatches = await this.queryAniListSearch(enTitle || title, 8);
-      const match = aniMatches.find((m) => {
-        if (type === 'movie' && m.format !== 'MOVIE') return false;
-        if (type === 'tv' && m.format === 'MOVIE') return false;
-        if (year && m.seasonYear && Math.abs(m.seasonYear - year) > (type === 'movie' ? 1 : 2)) return false;
-        return true;
-      });
+      const validAni = aniMatches
+        .filter((m) => {
+          if (type === 'movie' && m.format !== 'MOVIE') return false;
+          if (type === 'tv' && m.format === 'MOVIE') return false;
+          if (year && m.seasonYear && Math.abs(m.seasonYear - year) > (type === 'movie' ? 1 : 2)) return false;
+          return true;
+        })
+        .sort((a, b) => Math.abs((a.seasonYear || year || 0) - (year || 0)) - Math.abs((b.seasonYear || year || 0) - (year || 0)));
+      const match = validAni[0] || null;
       if (match) {
         anilistId = match.id;
         // Para Anime, Romaji e Inglés van primero porque así nombran los releases Erai-raws y ToonsHub
         const animePriority = new Set();
-        if (match.title?.romaji) animePriority.add(match.title.romaji.trim());
-        if (match.title?.english) animePriority.add(match.title.english.trim());
+        if (match.title?.romaji && !isTvSeasonSpecificAlias(match.title.romaji)) {
+          animePriority.add(match.title.romaji.trim());
+        }
+        if (match.title?.english && !isTvSeasonSpecificAlias(match.title.english)) {
+          animePriority.add(match.title.english.trim());
+        }
         for (const s of match.synonyms || []) {
           if (type === 'tv' || s.trim().split(/\s+/).length >= 2) pushClean(s);
         }
@@ -484,9 +500,13 @@ export class CatalogService {
           }
         }
 
+        const showIsDoc = (data.genres || []).some((g) => g.id === 99);
         relatedMovies = rawMovies
           .filter((m) => {
             if (!m.poster_path) return false;
+            if (!m.release_date || m.release_date > todayIso) return false;
+            if ((m.vote_count || 0) < (isAnime ? 10 : 25)) return false;
+            if (!showIsDoc && (m.genre_ids || []).includes(99)) return false;
             if (isAnime && !isAnimeHeuristic({ genreIds: m.genre_ids || [], originalLanguage: m.original_language })) {
               return false;
             }

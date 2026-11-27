@@ -117,20 +117,51 @@ function matchesMovieDistinctiveSubtitle(releaseTitle, acceptedTitles = [], year
     if (ym && Math.abs(Number(ym[1]) - year) <= 1) return true;
   }
 
-  // Si la película pertenece a una saga y tiene subtítulo tras ":" o "-" (ej. "My Hero Academia: Dos héroes" / "Two Heroes"),
-  // exigir que coincida con alguno de los subtítulos cuando el torrent no indica año, evitando mezclar películas de la saga.
+  // Si la película pertenece a una saga y tiene subtítulo tras ":" o "-" (ej. "My Hero Academia: Dos héroes" / "Demon Slayer Mugen Train"),
+  // exigir que coincida con alguno de los subtítulos distintivos cuando el torrent no indica año, evitando mezclar películas de la saga.
+  const stopWords = new Set([
+    'the',
+    'movie',
+    'pelicula',
+    'film',
+    'ova',
+    'gekijouban',
+    'de',
+    'la',
+    'el',
+    'los',
+    'las',
+    'no',
+    'to',
+  ]);
+  const franchiseWords = new Set();
   const subtitleTokenSets = [];
-  const stopWords = new Set(['the', 'movie', 'pelicula', 'film', 'ova', 'de', 'la', 'el', 'los', 'las', 'no', 'to']);
+
   for (const raw of acceptedTitles) {
     const cleaned = cleanSearchQueryTitle(raw);
     const parts = cleaned.split(/\s*(?::|-\s+|–\s+|\bthe\s+movie\b)\s*/i);
     if (parts.length >= 2) {
+      for (const pw of normalizeText(parts[0]).split(' ')) {
+        if (pw.length >= 3 && !stopWords.has(pw)) franchiseWords.add(pw);
+      }
       const subNorm = normalizeText(parts.slice(1).join(' '));
       const toks = subNorm.split(' ').filter((w) => w.length >= 3 && !stopWords.has(w));
       if (toks.length > 0) subtitleTokenSets.push(toks);
     }
   }
+
   if (subtitleTokenSets.length === 0) return true;
+
+  // Incluir también palabras distintivas (no pertenecientes a la raíz de la franquicia) de títulos alternativos sin ":"
+  for (const raw of acceptedTitles) {
+    const cleaned = cleanSearchQueryTitle(raw);
+    if (!/\s*(?::|-\s+|–\s+|\bthe\s+movie\b)\s*/i.test(cleaned)) {
+      const extraToks = normalizeText(cleaned)
+        .split(' ')
+        .filter((w) => w.length >= 3 && !stopWords.has(w) && !franchiseWords.has(w));
+      if (extraToks.length > 0) subtitleTokenSets.push(extraToks);
+    }
+  }
 
   const relTokens = new Set(normalizeText(releaseTitle).split(' ').filter(Boolean));
   return subtitleTokenSets.some((toks) => toks.every((w) => relTokens.has(w)));
@@ -240,19 +271,25 @@ export function classifyEpisodeMatch(
   }
 
   // 3. ¿Es un Pack de Temporada o Serie Completa?
+  const hasExplicitEpisodeRange = /\b0*\d{1,4}\s*[-_~]\s*0*\d{1,4}\b/.test(releaseTitle);
   const seasonPackPatterns = [
     new RegExp(`\\b(s${s2}|season\\s*0*${seasonNumber}|temporada\\s*0*${seasonNumber}|box\\s*0*${seasonNumber})\\b`, 'i'),
     /\b(complete|completa|batch|integrale|full\s*season)\b/i,
   ];
   const hasOtherEpisodeTag = /\bs\d{1,2}e\d{1,3}\b|\b\d{1,2}x\d{1,3}\b/i.test(releaseTitle);
+  const isMultiSeasonCompletePack = /\bs0*1\s*[-~]\s*s?0*[2-9]\b|\bcomplete\s+series\b|\bserie\s+completa\b/i.test(
+    releaseTitle
+  );
 
   if (
-    (!hasOtherEpisodeTag || isExplicitMultiEpPack || numberInRangePattern(releaseTitle, episodeNumber)) &&
+    !hasExplicitEpisodeRange &&
+    (!hasOtherEpisodeTag || isExplicitMultiEpPack) &&
     seasonPackPatterns.some((re) => re.test(releaseTitle))
   ) {
-    const explicitSeason = releaseTitle.match(/\b(?:s0*(\d{1,2})|season\s*0*(\d{1,2})|temporada\s*0*(\d{1,2}))\b/i);
-    const foundSeason = explicitSeason ? Number(explicitSeason[1] || explicitSeason[2] || explicitSeason[3]) : null;
-    if (foundSeason === null || foundSeason === seasonNumber) {
+    if (explicitSeason === seasonNumber) {
+      return { matched: true, isPack: true };
+    }
+    if (explicitSeason === null && (seasonNumber === 1 || isMultiSeasonCompletePack)) {
       return { matched: true, isPack: true };
     }
   }
@@ -404,7 +441,7 @@ export function scoreAndFilterCandidates(candidates, context) {
         continue;
       }
 
-      if (year && !cand.matchedExactImdbEpisode) {
+      if (year) {
         const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
         if (yearMatch && Math.abs(Number(yearMatch[1]) - year) > 1) {
           stats.episodeOrYearMismatch++;
@@ -412,7 +449,9 @@ export function scoreAndFilterCandidates(candidates, context) {
         }
       }
 
-      if (!cand.matchedExactImdbEpisode && !matchesMovieDistinctiveSubtitle(title, acceptedTitles, year)) {
+      const isSpanishRegionalMovieTracker =
+        cand.matchedExactImdbEpisode && /\b(mejortorrent|wolfmax|dontorrent|cinecalidad)/i.test(String(cand.source || ''));
+      if (!isSpanishRegionalMovieTracker && !matchesMovieDistinctiveSubtitle(title, acceptedTitles, year)) {
         stats.episodeOrYearMismatch++;
         continue;
       }
@@ -546,10 +585,27 @@ export function selectEpisodeFileFromTorrent(
     if (found) return found;
   }
 
-  const nums = [episodeNumber];
-  if (isAnime && absNumber && absNumber !== episodeNumber) nums.push(absNumber);
+  const seasonMarkerRe = new RegExp(
+    `(?:\\bs0*${seasonNumber}(?:e|\\b)|\\b(?:season|temporada|box)[\\s._-]*0*${seasonNumber}\\b|\\b0*${seasonNumber}(?:st|nd|rd|th)\\s+season\\b)`,
+    'i'
+  );
 
-  for (const num of nums) {
+  // En Temporadas > 1 de Anime: NUNCA elegir un "- 06.mkv" sin etiqueta de temporada (pertenecería a la Temporada 1);
+  // probar primero absNumber (ej. 31) y solo usar episodeNumber relativo (6) si la carpeta/archivo menciona esa temporada.
+  const searchEntries = [];
+  if (isAnime && seasonNumber > 1) {
+    if (absNumber && absNumber !== episodeNumber) {
+      searchEntries.push({ num: absNumber, requireSeasonInPath: false });
+    }
+    searchEntries.push({ num: episodeNumber, requireSeasonInPath: true });
+  } else {
+    searchEntries.push({ num: episodeNumber, requireSeasonInPath: false });
+    if (isAnime && absNumber && absNumber !== episodeNumber) {
+      searchEntries.push({ num: absNumber, requireSeasonInPath: false });
+    }
+  }
+
+  for (const { num, requireSeasonInPath } of searchEntries) {
     const n2 = pad2(num);
     const n3 = String(num).padStart(3, '0');
     const looseRe = new RegExp(
@@ -557,14 +613,13 @@ export function selectEpisodeFileFromTorrent(
       'i'
     );
     const candidates = videoFiles.filter((f) => {
+      if (requireSeasonInPath && !seasonMarkerRe.test(f.name)) return false;
       const base = f.name.split('/').pop() || f.name;
       return looseRe.test(base);
     });
     if (candidates.length === 1) return candidates[0];
     if (candidates.length > 1) {
-      const inSeasonFolder = candidates.find((f) =>
-        new RegExp(`(?:season|temporada|s|box)[\\s._-]*0*${seasonNumber}(?!\\d)`, 'i').test(f.name)
-      );
+      const inSeasonFolder = candidates.find((f) => seasonMarkerRe.test(f.name));
       if (inSeasonFolder) return inSeasonFolder;
       return candidates.sort((a, b) => (b.size || 0) - (a.size || 0))[0];
     }

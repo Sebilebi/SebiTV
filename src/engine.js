@@ -131,7 +131,7 @@ export class SebiEngine {
    */
   async ensureRegistered(mediaType, tmdbId, { forceRefresh = false } = {}) {
     const existing = this.db.getCatalogItemByTmdb(Number(tmdbId), mediaType);
-    const needsSchemaUpgrade = existing && Number(existing.catalog_schema_ver || 1) < 2;
+    const needsSchemaUpgrade = existing && Number(existing.catalog_schema_ver || 1) < 3;
     if (existing && !forceRefresh && !needsSchemaUpgrade) {
       if (!existing.jellyfin_id) {
         const jf = await this.jellyfin.findItemByTmdb(existing.tmdb_id, existing.media_type);

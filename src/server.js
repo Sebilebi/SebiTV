@@ -298,7 +298,7 @@ export function createSebiApp() {
         const existing = db.getCatalogItemByTmdb(tmdbId, mediaType);
         if (existing) {
           const item =
-            Number(existing.catalog_schema_ver || 1) < 2
+            Number(existing.catalog_schema_ver || 1) < 3
               ? await engine.ensureRegistered(mediaType, tmdbId, { forceRefresh: true })
               : await engine.getRichCatalogItem(existing.id);
           sendJson(res, 200, { registered: true, item });

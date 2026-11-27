@@ -634,4 +634,71 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
     episodeNumber: 3,
   });
   assert.match(shRanked[0].title, /720p/);
+
+  // 9. v1.5.3: Ataque a los Titanes S02E06 (abs 31) bloquea el Batch de Temporada 1 "01 ~ 25" y elige S2 - 06;
+  //    y Tren Infinito (Mugen Ressha-hen, 2020) bloquea Mugen-jou Hen (Infinity Castle, 2025) incluso desde imdb:NyaaSi
+  const aotS2Pool = [
+    {
+      source: 'nyaa.si',
+      title: '[Erai-raws] Shingeki no Kyojin - 01 ~ 25 [1080p][BATCH][Multiple Subtitle]',
+      seeders: 19,
+      sizeBytes: 12e9,
+    },
+    {
+      source: 'imdb:NyaaSi',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — [Erai-raws] Shingeki no Kyojin S2 - 01~12 [1080p][Multiple Subtitle] | [Erai-raws] Shingeki no Kyojin S2 - 06 [1080p].mkv | 👤 8 💾 1.09 GB ⚙️ NyaaSi | Multi Subs',
+      seeders: 8,
+      sizeBytes: 1.09e9,
+    },
+  ];
+  const aotRanked = scoreAndFilterCandidates(aotS2Pool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['Ataque a los Titanes', 'Shingeki no Kyojin', 'Attack on Titan'],
+    seasonNumber: 2,
+    episodeNumber: 6,
+    absNumber: 31,
+    totalRegularSeasons: 4,
+  });
+  assert.equal(aotRanked.length, 1);
+  assert.match(aotRanked[0].title, /S2 - 06/);
+
+  // Y dentro de un pack "01 ~ 25" sin etiqueta S02, selectEpisodeFileFromTorrent NO elige "- 06.mkv" para S02E06 (abs 31)
+  const s1PackFiles = [
+    { index: 0, name: '[Erai-raws] Shingeki no Kyojin - 01 ~ 25/[Erai-raws] Shingeki no Kyojin - 06 [1080p].mkv', size: 1e9 },
+    { index: 1, name: '[Erai-raws] Shingeki no Kyojin - 01 ~ 25/[Erai-raws] Shingeki no Kyojin - 07 [1080p].mkv', size: 1e9 },
+  ];
+  assert.equal(
+    selectEpisodeFileFromTorrent(s1PackFiles, { seasonNumber: 2, episodeNumber: 6, absNumber: 31, isAnime: true }),
+    null
+  );
+
+  // Película Mugen Train (2020) rechaza Mugen-jou Hen (Infinity Castle) mal enlazado en imdb:NyaaSi
+  const infinityCastleLeak = [
+    {
+      source: 'imdb:NyaaSi',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — [Judas] Gekijouban Kimetsu no Yaiba Mugen-jou Hen (Demon Slayer Infinity Castle) [1080p][Multi-Subs] (Movie) | 👤 69 💾 2.7 GB ⚙️ NyaaSi | Multi Subs',
+      seeders: 69,
+      sizeBytes: 2.7e9,
+    },
+    {
+      source: 'imdb:NyaaSi',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — [Erai-raws] Kimetsu no Yaiba - Mugen Ressha Hen - Movie [BD][1080p][Multiple Subtitle].mkv | 👤 7 💾 5.31 GB ⚙️ NyaaSi | Multi Subs',
+      seeders: 7,
+      sizeBytes: 5.31e9,
+    },
+  ];
+  const mugenClean = scoreAndFilterCandidates(infinityCastleLeak, {
+    isAnime: true,
+    mediaType: 'movie',
+    acceptedTitles: ['Guardianes de la Noche: Tren infinito', 'Kimetsu no Yaiba: Mugen Ressha-hen', 'Demon Slayer: Mugen Train'],
+    year: 2020,
+  });
+  assert.equal(mugenClean.length, 1);
+  assert.match(mugenClean[0].title, /Mugen Ressha Hen/);
 });
