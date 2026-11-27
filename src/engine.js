@@ -131,7 +131,8 @@ export class SebiEngine {
    */
   async ensureRegistered(mediaType, tmdbId, { forceRefresh = false } = {}) {
     const existing = this.db.getCatalogItemByTmdb(Number(tmdbId), mediaType);
-    if (existing && !forceRefresh) {
+    const needsSchemaUpgrade = existing && Number(existing.catalog_schema_ver || 1) < 2;
+    if (existing && !forceRefresh && !needsSchemaUpgrade) {
       if (!existing.jellyfin_id) {
         const jf = await this.jellyfin.findItemByTmdb(existing.tmdb_id, existing.media_type);
         if (jf?.Id) {
@@ -143,7 +144,7 @@ export class SebiEngine {
     }
 
     const details = await this.catalog.getFullDetails(mediaType, Number(tmdbId));
-    const folderPath = this.#computeFolderPath(details);
+    const folderPath = existing?.folder_path || this.#computeFolderPath(details);
 
     const savedItem = this.db.upsertCatalogItem({
       ...details,
@@ -151,6 +152,22 @@ export class SebiEngine {
     });
 
     if (details.mediaType === 'tv') {
+      const validSNums = new Set(details.seasons.map((s) => s.seasonNumber));
+      if (!validSNums.has(0)) {
+        this.db.db.prepare('DELETE FROM seasons WHERE item_id = ? AND season_number = 0').run(savedItem.id);
+      }
+      const validS0Eps = new Set(
+        details.episodes.filter((e) => e.seasonNumber === 0).map((e) => e.episodeNumber)
+      );
+      const oldS0Eps = this.db
+        .getEpisodesByItem(savedItem.id)
+        .filter((e) => e.season_number === 0 && e.status === 'missing' && !e.pinned);
+      for (const oldEp of oldS0Eps) {
+        if (!validS0Eps.has(oldEp.episode_number)) {
+          this.db.db.prepare('DELETE FROM episodes WHERE id = ?').run(oldEp.id);
+        }
+      }
+
       for (const s of details.seasons) {
         this.db.upsertSeason({ itemId: savedItem.id, ...s });
       }

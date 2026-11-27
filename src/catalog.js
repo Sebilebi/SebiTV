@@ -17,6 +17,7 @@ function tmdbImage(pathPart, size = 'w500') {
 export class CatalogService {
   constructor(getConfig) {
     this.getConfig = getConfig;
+    this.discoverCache = { expiresAt: 0, payload: null };
   }
 
   hasTmdbKey() {
@@ -46,11 +47,26 @@ export class CatalogService {
       }
     }
 
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
-    if (!res.ok) {
-      throw new Error(`TMDB HTTP ${res.status}: ${await res.text()}`);
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+        if (!res.ok) {
+          if (attempt === 0 && [429, 500, 502, 503, 504].includes(res.status)) {
+            await new Promise((r) => setTimeout(r, 600));
+            continue;
+          }
+          throw new Error(`TMDB HTTP ${res.status}: ${await res.text()}`);
+        }
+        return res.json();
+      } catch (err) {
+        lastErr = err;
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 600));
+        }
+      }
     }
-    return res.json();
+    throw lastErr;
   }
 
   async queryAniListSearch(query, limit = 15) {
@@ -124,7 +140,11 @@ export class CatalogService {
       };
     }
 
-    const [trendingAll, popularMovies, popularSeries, popularAnime] = await Promise.all([
+    if (this.discoverCache.payload && Date.now() < this.discoverCache.expiresAt) {
+      return structuredClone(this.discoverCache.payload);
+    }
+
+    const settled = await Promise.allSettled([
       this.#tmdbFetch('/trending/all/week', { language: 'es-ES' }),
       this.#tmdbFetch('/movie/popular', { language: 'es-ES', page: 1 }),
       this.#tmdbFetch('/discover/tv', {
@@ -142,7 +162,13 @@ export class CatalogService {
       }),
     ]);
 
-    return {
+    const val = (idx) => (settled[idx].status === 'fulfilled' ? settled[idx].value : { results: [] });
+    const trendingAll = val(0);
+    const popularMovies = val(1);
+    const popularSeries = val(2);
+    const popularAnime = val(3);
+
+    const payload = {
       configured: true,
       sections: [
         {
@@ -165,8 +191,13 @@ export class CatalogService {
           title: 'Películas Populares (Audio Castellano / Anime)',
           items: (popularMovies.results || []).map((r) => this.#normalizeCard(r, 'movie')).filter(Boolean).slice(0, 18),
         },
-      ],
+      ].filter((s) => s.items.length > 0),
     };
+
+    if (payload.sections.length > 0) {
+      this.discoverCache = { expiresAt: Date.now() + 10 * 60 * 1000, payload };
+    }
+    return structuredClone(payload);
   }
 
   async searchCatalog(query) {
@@ -365,35 +396,64 @@ export class CatalogService {
         }
       }
 
-      // Buscar películas oficiales de la misma franquicia/saga (especialmente útil en Anime)
+      // Buscar películas oficiales de la misma franquicia/saga (soportando títulos compuestos como "Kimetsu no Yaiba: Guardianes de la Noche")
       try {
-        const baseName = title.replace(/\s*\(\d{4}\)\s*$/, '').trim();
-        const movSearch = await this.#tmdbFetch('/search/movie', {
-          language: 'es-ES',
-          query: baseName,
-          include_adult: 'false',
-          page: 1,
-        });
-        const normBase = baseName
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toLowerCase();
-        const normEn = (enTitle || baseName)
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toLowerCase();
+        const normClean = (s = '') =>
+          String(s)
+            .replace(/\s*\(\d{4}\)\s*$/, '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
 
-        relatedMovies = (movSearch.results || [])
+        const rootCandidates = new Set();
+        for (const cand of [title, enTitle, ...searchTitleSet]) {
+          if (!cand) continue;
+          const base = cand.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+          if (base.length >= 4) rootCandidates.add(base);
+          for (const part of base.split(/\s*[:\-–]\s*/)) {
+            if (part.trim().split(/\s+/).length >= 2 || (isAnime && part.trim().length >= 6)) {
+              rootCandidates.add(part.trim());
+            }
+          }
+        }
+
+        const queries = [...rootCandidates].slice(0, 3);
+        const searchBatches = await Promise.allSettled(
+          queries.map((q) =>
+            this.#tmdbFetch('/search/movie', {
+              language: 'es-ES',
+              query: q,
+              include_adult: 'false',
+              page: 1,
+            })
+          )
+        );
+
+        const normPhrases = [...rootCandidates].map(normClean).filter((p) => p.length >= 4);
+        const seenMovieIds = new Set();
+        const rawMovies = [];
+        for (const b of searchBatches) {
+          if (b.status === 'fulfilled') {
+            for (const m of b.value.results || []) {
+              if (!seenMovieIds.has(m.id)) {
+                seenMovieIds.add(m.id);
+                rawMovies.push(m);
+              }
+            }
+          }
+        }
+
+        relatedMovies = rawMovies
           .filter((m) => {
             if (!m.poster_path) return false;
             if (isAnime && !isAnimeHeuristic({ genreIds: m.genre_ids || [], originalLanguage: m.original_language })) {
               return false;
             }
-            const mt = `${m.title || ''} ${m.original_title || ''}`
-              .normalize('NFD')
-              .replace(/[\u0300-\u036f]/g, '')
-              .toLowerCase();
-            return mt.includes(normBase) || mt.includes(normEn);
+            const mt = ` ${normClean(`${m.title || ''} ${m.original_title || ''}`)} `;
+            return normPhrases.some((ph) => mt.includes(` ${ph} `));
           })
           .slice(0, 8)
           .map((m) => this.#normalizeCard(m, 'movie'))

@@ -30,6 +30,7 @@ export class SebiDatabase {
         original_title TEXT,
         search_titles_json TEXT NOT NULL DEFAULT '[]',
         related_movies_json TEXT NOT NULL DEFAULT '[]',
+        catalog_schema_ver INTEGER NOT NULL DEFAULT 2,
         year INTEGER,
         poster_url TEXT,
         backdrop_url TEXT,
@@ -113,6 +114,7 @@ export class SebiDatabase {
       'ALTER TABLE catalog_items ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0',
       "ALTER TABLE catalog_items ADD COLUMN rejected_hashes_json TEXT NOT NULL DEFAULT '[]'",
       "ALTER TABLE catalog_items ADD COLUMN related_movies_json TEXT NOT NULL DEFAULT '[]'",
+      'ALTER TABLE catalog_items ADD COLUMN catalog_schema_ver INTEGER NOT NULL DEFAULT 1',
     ]) {
       try {
         this.db.exec(sql);
@@ -201,9 +203,9 @@ export class SebiDatabase {
       .prepare(
         `INSERT INTO catalog_items (
           tmdb_id, media_type, is_anime, anilist_id, imdb_id, tvdb_id,
-          title, original_title, search_titles_json, related_movies_json, year, poster_url, backdrop_url,
+          title, original_title, search_titles_json, related_movies_json, catalog_schema_ver, year, poster_url, backdrop_url,
           overview, folder_path, jellyfin_id, pinned, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(tmdb_id, media_type) DO UPDATE SET
           is_anime = excluded.is_anime,
           anilist_id = COALESCE(excluded.anilist_id, catalog_items.anilist_id),
@@ -213,6 +215,7 @@ export class SebiDatabase {
           original_title = excluded.original_title,
           search_titles_json = excluded.search_titles_json,
           related_movies_json = excluded.related_movies_json,
+          catalog_schema_ver = 2,
           year = excluded.year,
           poster_url = excluded.poster_url,
           backdrop_url = excluded.backdrop_url,

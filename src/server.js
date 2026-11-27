@@ -297,7 +297,11 @@ export function createSebiApp() {
         const tmdbId = Number(tmdbIdStr);
         const existing = db.getCatalogItemByTmdb(tmdbId, mediaType);
         if (existing) {
-          sendJson(res, 200, { registered: true, item: await engine.getRichCatalogItem(existing.id) });
+          const item =
+            Number(existing.catalog_schema_ver || 1) < 2
+              ? await engine.ensureRegistered(mediaType, tmdbId, { forceRefresh: true })
+              : await engine.getRichCatalogItem(existing.id);
+          sendJson(res, 200, { registered: true, item });
           return;
         }
         const remote = await catalog.getFullDetails(mediaType, tmdbId);

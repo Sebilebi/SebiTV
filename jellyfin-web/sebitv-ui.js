@@ -50,7 +50,9 @@
   });
 
   window.addEventListener('unhandledrejection', (ev) => {
-    uiLog('window.unhandledrejection', String(ev.reason?.message || ev.reason || 'Promesa rechazada'), null, 'ERROR');
+    const msg = String(ev.reason?.message || ev.reason || 'Promesa rechazada');
+    if (msg === '[object Response]' || msg.includes('AbortError')) return;
+    uiLog('window.unhandledrejection', msg, null, 'ERROR');
   });
 
   function esc(str = '') {
@@ -1329,7 +1331,7 @@
     if (!homeTab) return;
 
     let wrapper = document.getElementById('sebitv-home-discover');
-    if (wrapper && !force) return;
+    if (wrapper && wrapper.dataset.loaded === '1' && !force) return;
     if (!wrapper) {
       wrapper = document.createElement('div');
       wrapper.id = 'sebitv-home-discover';
@@ -1348,6 +1350,7 @@
             <button class="sebitv-pill-btn" id="sebitv-banner-cfg">Configurar TMDB</button>
           </div>
         `;
+        wrapper.dataset.loaded = '1';
         const b = document.getElementById('sebitv-banner-cfg');
         if (b) b.onclick = () => openOverlay('settings');
         return;
@@ -1365,9 +1368,10 @@
         `
         )
         .join('');
+      if ((data.sections || []).length > 0) wrapper.dataset.loaded = '1';
       bindCardClicks(wrapper);
     } catch {
-      // Silenciar si el contenedor está reiniciando
+      delete wrapper.dataset.loaded;
     }
   }
 
@@ -1523,6 +1527,30 @@
             tmdbId: item.tmdb_id,
             selectedSeason: bridge.seasonNumber ?? null,
           });
+      } else if (bridge.jellyfinType === 'Movie') {
+        banner.innerHTML = `
+          <div>
+            <strong>SebiTV (${esc(item.languageRule)}):</strong> Película descargada en tu servidor.
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="sebitv-pill-btn ${item.pinned ? 'pinned' : 'secondary'}" id="sebitv-nat-pin-mov">
+              ${item.pinned ? '📌 Película Fijada' : '📌 Fijar Película'}
+            </button>
+            <button class="sebitv-pill-btn danger" id="sebitv-nat-del-mov">🗑 Desinstalar Película</button>
+          </div>
+        `;
+        detailContainer.prepend(banner);
+        banner.querySelector('#sebitv-nat-pin-mov').onclick = async () => {
+          await api('/api/pin', {
+            method: 'POST',
+            body: JSON.stringify({ targetType: 'item', id: item.id, pinned: !item.pinned }),
+          });
+          window.location.reload();
+        };
+        banner.querySelector('#sebitv-nat-del-mov').onclick = async () => {
+          await api(`/api/media/movie/${item.id}`, { method: 'DELETE' });
+          window.location.hash = '#/home';
+        };
       }
     } catch {
       // Ignorar errores transitorios

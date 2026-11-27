@@ -340,18 +340,21 @@ export function scoreAndFilterCandidates(candidates, context) {
     }
 
     const isExactImdbStream = Boolean(cand.matchedExactImdbEpisode || matchedByImdb);
-    const sharesAnyLongWord = (() => {
+    const matchesDistinctiveAnchor = (() => {
       const relWords = new Set(normalizeText(title).split(' ').filter((w) => w.length >= 4));
-      return acceptedTitles.some((at) =>
-        normalizeText(cleanSearchQueryTitle(at))
+      return acceptedTitles.some((at) => {
+        const words = normalizeText(cleanSearchQueryTitle(at))
           .split(' ')
-          .some((w) => w.length >= 4 && relWords.has(w))
-      );
+          .filter((w) => w.length >= 4);
+        if (words.length === 0) return false;
+        const longestWord = [...words].sort((a, b) => b.length - a.length)[0];
+        return relWords.has(longestWord);
+      });
     })();
     const isTrustedRegionalImdbTracker =
       isExactImdbStream &&
       /\b(mejortorrent|wolfmax|dontorrent|cinecalidad|nyaa)/i.test(String(cand.source || '')) &&
-      (mediaType === 'tv' || sharesAnyLongWord);
+      matchesDistinctiveAnchor;
 
     if (!isTrustedRegionalImdbTracker && acceptedTitles.length > 0 && !matchesTitle(title, acceptedTitles)) {
       stats.titleMismatch++;
@@ -361,6 +364,17 @@ export function scoreAndFilterCandidates(candidates, context) {
     let isPack = false;
     if (mediaType === 'tv') {
       if (cand.matchedExactImdbEpisode) {
+        const { explicitSeason, hasFinalSeason } = extractExplicitSeasonInfo(title);
+        if (
+          (seasonNumber === 0 && ((explicitSeason !== null && explicitSeason > 0) || hasFinalSeason)) ||
+          (seasonNumber > 0 && explicitSeason !== null && explicitSeason !== seasonNumber) ||
+          (seasonNumber > 0 &&
+            hasFinalSeason &&
+            (seasonNumber === 1 || (totalRegularSeasons > 1 && seasonNumber < totalRegularSeasons)))
+        ) {
+          stats.episodeOrYearMismatch++;
+          continue;
+        }
         isPack = Number.isInteger(cand.hintFileIndex);
       } else {
         const epCheck = classifyEpisodeMatch(title, {

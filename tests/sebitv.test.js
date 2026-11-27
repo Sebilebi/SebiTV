@@ -524,4 +524,50 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(boysRanked.length, 1);
   assert.ok(boysRanked[0].languageBadges.includes('🇪🇸 Castellano'));
+
+  // 7. v1.5.1: Bloquea FINAL.SEASON incluso cuando Torrentio lo enlaza por error bajo S01E06, y bloquea "El juego de la piramide" en "Juego de tronos"
+  const imdbMislinkedPool = [
+    {
+      source: 'imdb:TorrentGalaxy',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — My.Hero.Academia.FINAL.SEASON.E06.MULTi.1080p.WEB.x264-AMB3R | 👤 20 💾 1.3 GB ⚙️ TorrentGalaxy | Multi Subs / 🇪🇸',
+      seeders: 20,
+      sizeBytes: 1.3e9,
+    },
+  ];
+  const mhaImdbCheck = scoreAndFilterCandidates(imdbMislinkedPool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['My Hero Academia', 'Boku no Hero Academia'],
+    seasonNumber: 1,
+    episodeNumber: 6,
+    totalRegularSeasons: 8,
+  });
+  assert.equal(mhaImdbCheck.length, 0);
+
+  const gotMislinkedPool = [
+    {
+      source: 'imdb:Wolfmax4k',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — El juego de la piramide [HDTV 1080p][Cap.101] | 👤 10 💾 1.8 GB ⚙️ Wolfmax4k | 🇪🇸',
+      seeders: 10,
+      sizeBytes: 1.8e9,
+    },
+    {
+      source: 'imdb:Wolfmax4k',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Juego de Tronos [HDTV 1080p][Cap.101] | 👤 14 💾 3.7 GB ⚙️ Wolfmax4k | 🇪🇸',
+      seeders: 14,
+      sizeBytes: 3.7e9,
+    },
+  ];
+  const gotCheck = scoreAndFilterCandidates(gotMislinkedPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['Juego de tronos', 'Game of Thrones'],
+    seasonNumber: 1,
+    episodeNumber: 1,
+  });
+  assert.equal(gotCheck.length, 1);
+  assert.match(gotCheck[0].title, /Juego de Tronos/);
 });
