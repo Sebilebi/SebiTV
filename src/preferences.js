@@ -146,7 +146,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
     );
 
   const hasVerifiedCastellano =
-    /\b(castellano|espa[ñn]ol\s+de\s+espa[ñn]a|es-es|dontorrent|mejortorrent|wolfmax\w*|atomohd|pctnew|newpct|pctmix|selecta[\s._-]*visi[oó]n|eth@n|bryan_122|mony2007)\b/i.test(
+    /\b(castellano|espa[ñn]ol\s+de\s+espa[ñn]a|es-es|dontorrent|mejortorrent|wolfa?max\w*|atomohd|pctnew|newpct|pctmix|selecta[\s._-]*visi[oó]n|eth@n|bryan_122|mony2007)\b/i.test(
       t
     );
 
@@ -169,6 +169,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
       /\b(latino|latam|es-la|es-419|spa-la|dual[\s._-]*lat|audio[\s._-]*latino|cinecalidad|pelisenhd|hackstore|megapeliculas\w*|somosmovies|yaske|dual[\s._-]*yg|dem3nt3|dmnt)\b/i.test(
         t
       ) ||
+      /\.dual\.y(?:\s*\||$)/i.test(t) ||
       /\.yg(?:\b|⭐|\s|$)/i.test(t));
 
   const hasBothSpaVariants =

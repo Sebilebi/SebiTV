@@ -1330,4 +1330,16 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(darkLupa.length, 2);
   assert.ok(darkLupa.every((c) => !/Clevatess|Dark Matter|Materials|Re ZERO/i.test(c.title)));
+
+  // 26. v1.6.16 (Spider-Man: Cruzando el Multiverso): detectar ".Dual.Y" truncado (Yamil .Dual.YG) como Latino y typo "wolfamax4k" como Castellano verificado
+  const truncYamil = inspectReleaseLanguages(
+    'Torrentio 1080p — Spider-Man.Across.the.Spider-Verse.2023.1080p.MA.WEB-DL.x265.10Bit.DD+5.1.Dual.Y | 👤 3 💾 3.99 GB ⚙️ ThePirateBay | 🇪🇸'
+  );
+  assert.equal(truncYamil.hasExplicitLatino, true);
+  assert.equal(truncYamil.hasExplicitCastellano, false);
+
+  const wolfTypo = inspectReleaseLanguages(
+    'Torrentio 1080p — Spider-Man Cruzando el Multiverso (2023) [Bluray 1080p][Esp](wolfamax4k com) | 👤 44 💾 10.73 GB ⚙️ MejorTorrent | 🇪🇸'
+  );
+  assert.equal(wolfTypo.hasVerifiedCastellano, true);
 });
