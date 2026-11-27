@@ -119,6 +119,10 @@
     if (fab) {
       fab.classList.toggle('is-hidden-video', playing);
     }
+    const hBtn = document.getElementById('sebitv-header-trigger');
+    if (hBtn) {
+      hBtn.style.display = playing ? 'none' : '';
+    }
     if (playing && state.overlayOpen) {
       closeOverlay();
     }
@@ -238,15 +242,21 @@
       document.getElementById('sebitv-open-settings').addEventListener('click', () => openOverlay('settings'));
     }
 
-    // Integrar también acceso directo limpio en la barra superior nativa de Jellyfin (MUI 12.4 y clásica)
-    const headerRight =
-      document.querySelector('.skinHeader .headerRight') ||
-      (() => {
-        const toolbar = document.querySelector('.MuiAppBar-root .MuiToolbar-root');
-        if (!toolbar) return null;
-        const boxes = [...toolbar.children];
-        return boxes.length >= 2 ? boxes[boxes.length - 1] : null;
-      })();
+    // Integrar también acceso directo limpio en la barra superior VISIBLE de Jellyfin (MUI 12.4 primero, ignorando .skinHeader oculta)
+    const headerRight = (() => {
+      const muiToolbars = [...document.querySelectorAll('.MuiAppBar-root .MuiToolbar-root')].filter(
+        (el) => el.offsetParent !== null
+      );
+      if (muiToolbars.length > 0) {
+        const boxes = [...muiToolbars[0].children];
+        if (boxes.length >= 2) return boxes[boxes.length - 1];
+      }
+      return [...document.querySelectorAll('.skinHeader .headerRight')].find((el) => el.offsetParent !== null) || null;
+    })();
+    const existingTrigger = document.getElementById('sebitv-header-trigger');
+    if (existingTrigger && headerRight && !headerRight.contains(existingTrigger)) {
+      existingTrigger.remove();
+    }
     if (headerRight && !document.getElementById('sebitv-header-trigger')) {
       const hBtn = document.createElement('button');
       hBtn.type = 'button';
