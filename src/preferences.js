@@ -177,6 +177,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
   const hasExplicitCastellano =
     hasVerifiedCastellano ||
     hasBothSpaVariants ||
+    /\baudio\s*:\s*[^\]|]*\b(?:es|esp|spa)\b/i.test(t) ||
     (hasEsFlag && !flagsAreSubtitlesOnly && !hasExplicitLatino) ||
     (!isVoseOnly &&
       !hasExplicitLatino &&
@@ -298,6 +299,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
     hasMultiAudio,
     hasEngDubOnly,
     hasMultiSub,
+    hasVerifiedSpanishInMultiSub,
     isCrunchyrollImplicitSub,
     hasSpanishSub,
     hasEnglishSub,

@@ -1131,4 +1131,27 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(sevRanked.length, 1);
   assert.match(sevRanked[0].source, /Wolfmax4k/);
+
+  // 18. v1.6.8 (Hallazgo Suzume): prioriza MultiSub con español verificado (Judas/Erai-raws/Audio: ES) sobre "[Anime Time] [Multi Sub]" asiático (EN/ZH/ID/MS/TH)
+  const suzumePool = [
+    {
+      source: 'nyaa.si',
+      title: '[Anime Time] Suzume No Tojimari [1080p][HEVC 10bit x265][AAC][Multi Sub]',
+      seeders: 70,
+      sizeBytes: 2.5e9,
+    },
+    {
+      source: 'nyaa.si',
+      title: '[Judas] Suzume no Tojimari (Suzume) [1080p][HEVC x265 10bit][Multi-Subs]',
+      seeders: 35,
+      sizeBytes: 2.2e9,
+    },
+  ];
+  const suzumeRanked = scoreAndFilterCandidates(suzumePool, {
+    isAnime: true,
+    mediaType: 'movie',
+    acceptedTitles: ['Suzume', 'Suzume no Tojimari'],
+    year: 2022,
+  });
+  assert.match(suzumeRanked[0].title, /\[Judas\]/);
 });

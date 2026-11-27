@@ -695,7 +695,9 @@ export function scoreAndFilterCandidates(candidates, context) {
       if (profile.subPrimary === 'off' || audioIsAlreadySpanish) {
         subTierScore = 200;
       } else if (matchSubtitlePreferenceTier(langInfo, profile.subPrimary)) {
-        subTierScore = langInfo.isCrunchyrollImplicitSub ? 225 : 300;
+        const isGenericUnverifiedMultiSub =
+          langInfo.hasMultiSub && !langInfo.hasVerifiedSpanishInMultiSub && !langInfo.isVoseOnly;
+        subTierScore = langInfo.isCrunchyrollImplicitSub ? 225 : isGenericUnverifiedMultiSub ? 220 : 300;
         if (/\b(erai-raws|toonshub|castellano|es-es)\b/i.test(title)) subTierScore += 35;
       } else if (matchSubtitlePreferenceTier(langInfo, profile.subSecondary)) {
         subTierScore = 200;
