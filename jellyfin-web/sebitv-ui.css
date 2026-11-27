@@ -303,6 +303,9 @@ body:has(video.htmlvideoplayer) .sebitv-fab-bar,
 
 .sebitv-card {
   flex: 0 0 156px;
+  width: 156px;
+  max-width: 156px;
+  min-width: 0;
   scroll-snap-align: start;
   cursor: pointer;
   background: transparent;
@@ -312,6 +315,9 @@ body:has(video.htmlvideoplayer) .sebitv-fab-bar,
 
 .sebitv-grid .sebitv-card {
   flex: initial;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
 }
 
 .sebitv-card-poster-wrap {

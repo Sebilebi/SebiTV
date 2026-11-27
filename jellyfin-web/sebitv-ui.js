@@ -95,14 +95,18 @@
      ========================================================================= */
   function isVideoPlaybackActive() {
     const hash = window.location.hash || '';
-    if (/#!?\/video\b/i.test(hash)) return true;
+    if (/#!?\/video/i.test(hash)) return true;
     if (document.fullscreenElement || document.webkitFullscreenElement) return true;
-    const osd = document.querySelector('#videoOsdPage:not(.hide), .videoOsdPage:not(.hide), .videoPlayerContainer');
+    const osd = document.querySelector(
+      '#videoOsdPage:not(.hide), .videoOsdPage:not(.hide), .videoPlayerContainer, .upNextDialog:not(.hide)'
+    );
     if (osd) return true;
     const videos = document.querySelectorAll('video');
     for (const v of videos) {
       if (v.closest('.hide')) continue;
-      if (v.classList.contains('htmlvideoplayer') || (!v.paused && v.readyState >= 2 && v.offsetParent !== null)) {
+      const cs = window.getComputedStyle(v);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      if (v.classList.contains('htmlvideoplayer') || Boolean(v.currentSrc || v.src) || !v.paused) {
         return true;
       }
     }
@@ -234,8 +238,15 @@
       document.getElementById('sebitv-open-settings').addEventListener('click', () => openOverlay('settings'));
     }
 
-    // Integrar también acceso directo limpio en la barra superior derecha nativa de Jellyfin si existe
-    const headerRight = document.querySelector('.skinHeader .headerRight');
+    // Integrar también acceso directo limpio en la barra superior nativa de Jellyfin (MUI 12.4 y clásica)
+    const headerRight =
+      document.querySelector('.skinHeader .headerRight') ||
+      (() => {
+        const toolbar = document.querySelector('.MuiAppBar-root .MuiToolbar-root');
+        if (!toolbar) return null;
+        const boxes = [...toolbar.children];
+        return boxes.length >= 2 ? boxes[boxes.length - 1] : null;
+      })();
     if (headerRight && !document.getElementById('sebitv-header-trigger')) {
       const hBtn = document.createElement('button');
       hBtn.type = 'button';
