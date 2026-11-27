@@ -454,7 +454,7 @@ export class CatalogService {
             const epDesc = String(ep.overview || '');
             if (ep.air_date && ep.air_date > todayIso) return false;
             if (
-              /\b(making[\s-]*of|making\s+\w+|behind\s+the|inside\s+the\s+episode|scene\s+breakdown|bridging\s+the\s+rift|afterglow|storyboard|animatic|music\s+video|featurette|cast\s+interview|trailer|teaser|promo\b|preview\b|manner\s+movie|campaign)\b/i.test(
+              /\b(making[\s-]*of|making\s+\w+|behind\s+the|inside\s+the\s+episode|scene\s+breakdown|bridging\s+the\s+rift|afterglow|aftershow|modales\s+en\s+el\s+cine|storyboard|animatic|music\s+video|featurette|cast\s+interview|trailer|teaser|promo\b|preview\b|manner\s+movie|campaign)\b/i.test(
                 `${epName} ${epDesc}`
               )
             ) {

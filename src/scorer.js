@@ -44,6 +44,14 @@ export function matchesTitle(releaseTitle, acceptedTitles = []) {
   const normRelease = normalizeText(releaseTitle);
   const releaseTokens = new Set(normRelease.split(' ').filter(Boolean));
 
+  // Título limpio sin prefijo "Torrentio ... —" ni etiquetas iniciales "[Judas]" / "(2020)" para validar títulos de 1 sola palabra
+  const coreTitle = String(releaseTitle || '')
+    .replace(/^Torrentio[^—]*—\s*/i, '')
+    .replace(/^(?:\s*(?:\[[^\]]*\]|\([^)]*\))\s*)+/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
   const allTargetNorms = acceptedTitles.map((t) => normalizeText(cleanSearchQueryTitle(t))).filter(Boolean);
   const allowedSequelTokens = new Set();
   for (const tn of allTargetNorms) {
@@ -66,6 +74,23 @@ export function matchesTitle(releaseTitle, acceptedTitles = []) {
       }
     }
     if (hasConflictingSaga) continue;
+
+    if (words.length === 1) {
+      const w = words[0];
+      const startMatch = coreTitle.match(new RegExp(`^${w}(?![a-z0-9])(.*)$`, 'i'));
+      if (!startMatch) continue;
+      if (w.length <= 5) {
+        const rest = startMatch[1] || '';
+        const validShortFollow =
+          rest === '' ||
+          /^\s*[-–:|(\[_]/.test(rest) ||
+          /^[\s.]+(?:s?\d{1,2}[ex]\d{1,3}|s\d{1,2}\b|e\d{1,3}\b|(?:19|20)\d{2}\b|\d{3,4}[pi]\b|4k\b|uhd\b|hdr\w*\b|dv\b|imax\b|season\b|temporada\b|cap(?:itulo)?\b|complete\b|completa\b|integrale\b|batch\b|pack\b|ii\b|iii\b|iv\b|v\b|part\b|parte\b|cour\b|ova\b|oad\b|special\b|movie\b|the\s+movie\b|film\b|web(?:-?dl|rip)?\b|bluray\b|bdrip\b|brrip\b|remux\b|bdremux\b|hdtv\b|dvdrip\b|microhd\b|x26[45]\b|h\.?26[45]\b|hevc\b|av1\b|multi\w*\b|dual\w*\b|castellano\b|spanish\b|espa[ñn]ol\b|latino\b|german\b|deutsch\b|english\b|french\b|italian\b)/i.test(
+            rest
+          );
+        if (!validShortFollow) continue;
+      }
+      return true;
+    }
 
     if (` ${normRelease} `.includes(` ${normTarget} `)) return true;
 

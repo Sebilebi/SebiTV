@@ -1309,4 +1309,25 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   assert.equal(jjk0Ranked.length, 1);
   assert.match(jjk0Ranked[0].title, /\[Judas\].*Movie 01/);
   assert.ok(jjk0Ranked[0].languageBadges.includes('🇯🇵 Japonés'));
+
+  // 25. v1.6.15 (Dark): títulos cortos de 1 palabra ("Dark") exigen inicio exacto y bloquean homónimos compuestos (Dark Matter, Dark Winds, His Dark Materials, Clevatess The Dark Tower)
+  const darkPool = [
+    { source: 'knaben:nyaasi', title: '[SubsPlease] Clevatess S02E04 - The Dark Tower (1080p) [ABCD1234].mkv', seeders: 210, sizeBytes: 1.2e9 },
+    { source: 'knaben:thepiratebay', title: 'Dark Matter 2024 S02E04 1080p WEB H264-ETHEL', seeders: 140, sizeBytes: 1.5e9 },
+    { source: 'imdb:EZTV', title: 'His.Dark.Materials.S02E04.1080p.WEB.H264', seeders: 85, sizeBytes: 1.4e9 },
+    { source: 'knaben:nyaasi', title: '[Erai-raws] Re ZERO S02E04 - A Dark Torrent [1080p].mkv', seeders: 95, sizeBytes: 1.3e9 },
+    { source: 'imdb:MejorTorrent', matchedExactImdbEpisode: true, title: 'Torrentio SD — Dark - Temporada 2 [HDTV][Cap.204][Castellano] | 👤 3 💾 686 MB ⚙️ MejorTorrent | 🇪🇸', seeders: 3, sizeBytes: 686e6 },
+    { source: 'imdb:1337x', title: 'Dark.S02E04.German.DL.1080p.NF.WEB-DL.x264', seeders: 45, sizeBytes: 1.8e9 },
+  ];
+  const darkLupa = scoreAndFilterCandidates(darkPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['Dark'],
+    seasonNumber: 2,
+    episodeNumber: 4,
+    totalRegularSeasons: 3,
+    allLanguages: true,
+  });
+  assert.equal(darkLupa.length, 2);
+  assert.ok(darkLupa.every((c) => !/Clevatess|Dark Matter|Materials|Re ZERO/i.test(c.title)));
 });
