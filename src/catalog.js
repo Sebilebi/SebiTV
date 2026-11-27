@@ -153,7 +153,7 @@ export class CatalogService {
     }
 
     const todayIso = new Date().toISOString().slice(0, 10);
-    const digitalMovieCutoffIso = new Date(Date.now() - 45 * 86400_000).toISOString().slice(0, 10);
+    const digitalMovieCutoffIso = new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 10);
     const settled = await Promise.allSettled([
       this.#tmdbFetch('/trending/all/week', { language: 'es-ES' }),
       this.#tmdbFetch('/discover/movie', {
@@ -162,7 +162,7 @@ export class CatalogService {
         sort_by: 'popularity.desc',
         with_release_type: '4|5|6', // Solo Digital, BluRay/Físico o TV
         'primary_release_date.lte': digitalMovieCutoffIso,
-        'vote_count.gte': '180',
+        'vote_count.gte': '40',
         include_adult: 'false',
         page: 1,
       }),
@@ -170,7 +170,7 @@ export class CatalogService {
         language: 'es-ES',
         sort_by: 'popularity.desc',
         'first_air_date.lte': todayIso,
-        'vote_count.gte': '60',
+        'vote_count.gte': '30',
         without_genres: '16',
         page: 1,
       }),
@@ -178,7 +178,7 @@ export class CatalogService {
         language: 'es-ES',
         sort_by: 'popularity.desc',
         'first_air_date.lte': todayIso,
-        'vote_count.gte': '20',
+        'vote_count.gte': '15',
         with_genres: '16',
         with_original_language: 'ja',
         page: 1,
@@ -193,7 +193,7 @@ export class CatalogService {
       if (mType === 'movie' && d > digitalMovieCutoffIso) return false;
       if (mType !== 'movie' && d > todayIso) return false;
       const isAnim = (r.genre_ids || []).includes(16) && r.original_language === 'ja';
-      const minVotes = mType === 'movie' ? (isAnim ? 30 : 180) : isAnim ? 15 : 50;
+      const minVotes = mType === 'movie' ? (isAnim ? 15 : 40) : isAnim ? 12 : 25;
       return (r.vote_count || 0) >= minVotes;
     };
     const trendingAll = val(0);
@@ -252,13 +252,50 @@ export class CatalogService {
   async searchCatalog(query) {
     const q = (query || '').trim();
     if (!q) return [];
-    const data = await this.#tmdbFetch('/search/multi', {
-      language: 'es-ES',
-      query: q,
-      include_adult: 'false',
-      page: 1,
+    const [esSettled, enSettled] = await Promise.allSettled([
+      this.#tmdbFetch('/search/multi', {
+        language: 'es-ES',
+        query: q,
+        include_adult: 'false',
+        page: 1,
+      }),
+      this.#tmdbFetch('/search/multi', {
+        language: 'en-US',
+        query: q,
+        include_adult: 'false',
+        page: 1,
+      }),
+    ]);
+
+    const esResults = esSettled.status === 'fulfilled' ? esSettled.value.results || [] : [];
+    const enResults = enSettled.status === 'fulfilled' ? enSettled.value.results || [] : [];
+
+    const byKey = new Map();
+    for (const r of esResults) {
+      if (r.media_type === 'movie' || r.media_type === 'tv') {
+        byKey.set(`${r.media_type}:${r.id}`, r);
+      }
+    }
+    for (const r of enResults) {
+      const key = `${r.media_type}:${r.id}`;
+      if ((r.media_type === 'movie' || r.media_type === 'tv') && !byKey.has(key)) {
+        byKey.set(key, r);
+      }
+    }
+
+    const qNorm = q.toLowerCase();
+    const mergedRaw = [...byKey.values()].sort((a, b) => {
+      const aTitles = [a.title, a.name, a.original_title, a.original_name].filter(Boolean).map((s) => s.toLowerCase());
+      const bTitles = [b.title, b.name, b.original_title, b.original_name].filter(Boolean).map((s) => s.toLowerCase());
+      const aExact = aTitles.some((t) => t === qNorm || t === `${qNorm}.`) ? 1 : 0;
+      const bExact = bTitles.some((t) => t === qNorm || t === `${qNorm}.`) ? 1 : 0;
+      if (aExact !== bExact) return bExact - aExact;
+      const aScore = (a.popularity || 0) * Math.log10((a.vote_count || 0) + 10);
+      const bScore = (b.popularity || 0) * Math.log10((b.vote_count || 0) + 10);
+      return bScore - aScore;
     });
-    return (data.results || [])
+
+    return mergedRaw
       .map((r) => this.#normalizeCard(r))
       .filter(Boolean)
       .slice(0, 30);

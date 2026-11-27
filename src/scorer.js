@@ -169,11 +169,20 @@ function matchesMovieDistinctiveSubtitle(releaseTitle, acceptedTitles = [], year
 
 export function classifyEpisodeMatch(
   releaseTitle,
-  { seasonNumber, episodeNumber, absNumber, isAnime, totalRegularSeasons = 0, episodeTitle = '' }
+  { seasonNumber, episodeNumber, absNumber, isAnime, totalRegularSeasons = 0, episodeTitle = '', episodeYear = null }
 ) {
   const s2 = pad2(seasonNumber);
   const e2 = pad2(episodeNumber);
   const { explicitSeason, hasFinalSeason } = extractExplicitSeasonInfo(releaseTitle);
+
+  // En Anime, grupos como Erai-raws usan "(2019)" o "(2025)" para indicar Temporada 2 o 3 sin escribir S02/S03:
+  // si el título trae un año entre paréntesis distinto al año real de emisión de este capítulo/OVA, rechazar.
+  if (isAnime && episodeYear && explicitSeason === null && !/\b(?:19|20)\d{2}\s*[-~]\s*(?:19|20)\d{2}\b/.test(releaseTitle)) {
+    const parenYear = releaseTitle.match(/\((19\d{2}|20\d{2})\)/);
+    if (parenYear && Math.abs(Number(parenYear[1]) - episodeYear) > 1) {
+      return { matched: false, isPack: false };
+    }
+  }
 
   // 0. Temporada 0 (OVAs / Especiales): NUNCA confundir con temporadas regulares ni "Final Season"
   if (seasonNumber === 0) {
@@ -309,7 +318,15 @@ function matchAudioPreferenceTier(langInfo, prefCode) {
   if (prefCode === 'any') return true;
   if (prefCode === 'es-ES') return langInfo.hasExplicitCastellano;
   if (prefCode === 'es-419') return langInfo.hasExplicitLatino;
-  if (prefCode === 'ja') return langInfo.hasJapaneseAudio || (!langInfo.hasEngDubOnly && langInfo.hasMultiSub);
+  if (prefCode === 'ja') {
+    return (
+      langInfo.hasJapaneseAudio ||
+      (!langInfo.hasEngDubOnly &&
+        !langInfo.hasExplicitCastellano &&
+        !langInfo.hasExplicitLatino &&
+        (langInfo.hasMultiSub || langInfo.hasSpanishSub))
+    );
+  }
   if (prefCode === 'en') return langInfo.hasEnglishAudio;
   if (prefCode === 'multi') return langInfo.hasMultiAudio;
   return false;
@@ -338,6 +355,7 @@ export function scoreAndFilterCandidates(candidates, context) {
     absNumber = null,
     totalRegularSeasons = 0,
     episodeTitle = '',
+    episodeYear = null,
     rejectedHashes = [],
     allowExternalSubFallback = false,
     matchedByImdb = false,
@@ -402,7 +420,12 @@ export function scoreAndFilterCandidates(candidates, context) {
     if (mediaType === 'tv') {
       if (cand.matchedExactImdbEpisode) {
         const { explicitSeason, hasFinalSeason } = extractExplicitSeasonInfo(title);
+        const parenYear =
+          isAnime && episodeYear && explicitSeason === null && !/\b(?:19|20)\d{2}\s*[-~]\s*(?:19|20)\d{2}\b/.test(title)
+            ? title.match(/\((19\d{2}|20\d{2})\)/)
+            : null;
         if (
+          (parenYear && Math.abs(Number(parenYear[1]) - episodeYear) > 1) ||
           (seasonNumber === 0 && ((explicitSeason !== null && explicitSeason > 0) || hasFinalSeason)) ||
           (seasonNumber > 0 && explicitSeason !== null && explicitSeason !== seasonNumber) ||
           (seasonNumber > 0 &&
@@ -421,6 +444,7 @@ export function scoreAndFilterCandidates(candidates, context) {
           isAnime,
           totalRegularSeasons,
           episodeTitle,
+          episodeYear,
         });
         if (!epCheck.matched) {
           stats.episodeOrYearMismatch++;
@@ -535,7 +559,14 @@ export function scoreAndFilterCandidates(candidates, context) {
     if (isPack && !Number.isInteger(cand.hintFileIndex)) score -= 35;
     if (!isPack && mediaType === 'tv' && cand.sizeBytes > 6 * 1024 ** 3) score -= 120;
     if (mediaType === 'movie') {
-      if (cand.sizeBytes > 25 * 1024 ** 3) score -= 120;
+      const isRemux = /\b(bdremux|uhdremux|remux|fullbluray|bd50|bd25)\b/i.test(title);
+      if (isRemux || cand.sizeBytes > 24 * 1024 ** 3) {
+        score -= 340; // Proteger el disco de 120 GB frente a BDRemux de 35-60 GB salvo que sea la única copia
+      } else if (cand.sizeBytes > 15 * 1024 ** 3) {
+        score -= 140;
+      } else if (!isAnime && cand.sizeBytes >= 1.4 * 1024 ** 3 && cand.sizeBytes <= 13 * 1024 ** 3) {
+        score += 65; // Tamaño ideal 1080p / MicroHD / BluRay Rip rápido y nítido
+      }
       if (isAnime && cand.sizeBytes >= 900 * 1024 ** 2 && cand.sizeBytes <= 4.5 * 1024 ** 3) score += 40;
       if (isAnime && cand.sizeBytes > 5 * 1024 ** 3 && (cand.seeders || 0) < 15) score -= 45;
     }

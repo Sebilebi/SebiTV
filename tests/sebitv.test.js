@@ -729,4 +729,57 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(chernobylRanked.length, 1);
   assert.match(chernobylRanked[0].source, /MejorTorrent/);
+
+  // 11. v1.5.5: Anime con año de temporada entre paréntesis ("One Punch Man (2025) - 09" S3 != S1 2015) y protección anti-BDRemux 38 GB en disco de 120 GB
+  const opmS1Pool = [
+    {
+      source: 'knaben:nyaasi',
+      title: '[Erai-raws] One Punch Man (2025) - 09 [1080p CR WEB-DL AVC AAC][MultiSub]',
+      seeders: 294,
+      sizeBytes: 1.3e9,
+    },
+    {
+      source: 'imdb:NyaaSi',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — [Judas] One Punch Man (Seasons 1-2) [BD 1080p][Multi-Subs] | [Judas] One-Punch Man - S01E09.mkv | 👤 173 💾 431 MB ⚙️ NyaaSi | Multi Subs',
+      seeders: 173,
+      sizeBytes: 431e6,
+    },
+  ];
+  const opmS1Ranked = scoreAndFilterCandidates(opmS1Pool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['One Punch Man', 'One-Punch Man'],
+    seasonNumber: 1,
+    episodeNumber: 9,
+    absNumber: 9,
+    totalRegularSeasons: 3,
+    episodeYear: 2015,
+  });
+  assert.equal(opmS1Ranked.length, 1);
+  assert.match(opmS1Ranked[0].title, /S01E09/);
+
+  const hungerGamesPool = [
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Pack Los Juegos Del Hambre [BDremux 1080p][Castellano] | JuegosDelHambre1BDR1080.mkv | 👤 218 💾 38.57 GB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 218,
+      sizeBytes: 38.57e9,
+    },
+    {
+      source: 'imdb:ThePirateBay',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio DVDRip — los juegos del hambre.dvdrip.castellano.avi | 👤 11 💾 1.63 GB ⚙️ ThePirateBay | 🇪🇸',
+      seeders: 11,
+      sizeBytes: 1.63e9,
+    },
+  ];
+  const hgRanked = scoreAndFilterCandidates(hungerGamesPool, {
+    isAnime: false,
+    mediaType: 'movie',
+    acceptedTitles: ['Los Juegos del Hambre', 'The Hunger Games'],
+    year: 2012,
+  });
+  assert.match(hgRanked[0].title, /1\.63 GB/); // Evita el BDRemux gigante de 38.57 GB cuando existe versión ligera activa
 });

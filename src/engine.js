@@ -344,6 +344,8 @@ export class SebiEngine {
       accepted: 0,
     };
 
+    const episodeYear = ep.air_date ? Number.parseInt(String(ep.air_date).slice(0, 4), 10) || null : null;
+
     const scoredNormal = scoreAndFilterCandidates(allNormal, {
       isAnime: Boolean(item.is_anime),
       mediaType: 'tv',
@@ -353,6 +355,7 @@ export class SebiEngine {
       absNumber: ep.abs_number,
       totalRegularSeasons,
       episodeTitle: ep.title,
+      episodeYear,
       rejectedHashes,
       allowExternalSubFallback,
       matchedByImdb: false,
@@ -370,6 +373,7 @@ export class SebiEngine {
       absNumber: ep.abs_number,
       totalRegularSeasons,
       episodeTitle: ep.title,
+      episodeYear,
       rejectedHashes,
       allowExternalSubFallback,
       matchedByImdb: true,

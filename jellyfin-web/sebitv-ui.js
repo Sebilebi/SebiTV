@@ -146,6 +146,10 @@
     state.overlayOpen = false;
     const el = document.getElementById('sebitv-overlay');
     if (el) el.style.display = 'none';
+    if ((window.location.hash || '').includes('/details')) {
+      document.querySelectorAll('.sebitv-native-banner').forEach((b) => b.remove());
+      injectNativeDetailPageControls();
+    }
   }
 
   async function openOverlay(view = 'discover', detailParams = null) {
