@@ -2,6 +2,7 @@ import { DEFAULT_PREFERENCES, inspectReleaseLanguages } from './preferences.js';
 
 const VIDEO_EXT_RE = /\.(mkv|mp4|avi|webm|m4v|ts)$/i;
 const CAM_RE = /\b(hdcam|camrip|cam|ts-screener|hdts|telesync|telecine|workprint)\b/i;
+const RAW_DISC_RE = /\b(bdmv|bdiso|dvd5|dvd9)\b|\.iso(?:\b|\s|\||$)/i;
 const ANIME_RAW_RE = /\b(\[raw\]|raw-raws|\braw\b)\b/i;
 
 // Sagas/secuelas/spin-offs que NO deben confundirse entre sí (ej. Dragon Ball Z != DAIMA/Kai, MHA != Vigilantes)
@@ -528,18 +529,15 @@ export function scoreAndFilterCandidates(candidates, context) {
       // MODO LUPA 🔍: No descartar ningún idioma, subtítulo ni resolución; devolver todas las opciones etiquetadas
       if (langInfo.hasExplicitCastellano) score += 150;
       if (langInfo.hasSpanishSub) score += 120;
+      if (RAW_DISC_RE.test(title)) score -= 400;
     } else {
-      // Filtro estricto de resolución cuando el usuario desmarca "Permitir otra resolución de respaldo"
-      if (!allowQualityFallback && prefQuality !== 'best') {
-        const expectedResMap = { '4k': '4K', '1080p': '1080p', '720p': '720p', sd: 'SD' };
-        const expectedRes = expectedResMap[prefQuality];
-        if (expectedRes && langInfo.resolution !== expectedRes) {
-          stats.qualityRejected = (stats.qualityRejected || 0) + 1;
-          continue;
-        }
+      // Descartar estructuras crudas de disco (BDMV / ISO / DVD5) que no son un archivo de vídeo reproducible directo
+      if (RAW_DISC_RE.test(title)) {
+        stats.episodeOrYearMismatch++;
+        continue;
       }
 
-      // MODO DESCARGA AUTOMÁTICA: Aplicar estrictamente el Perfil de Preferencias (Primario > Secundario > Otros)
+      // MODO DESCARGA AUTOMÁTICA: Aplicar primero el Perfil de Idioma y Subtítulos (Primario > Secundario > Otros)
       if (isAnime && ANIME_RAW_RE.test(title) && !allowExternalSubFallback) {
         stats.languageRejected++;
         continue;
@@ -595,6 +593,16 @@ export function scoreAndFilterCandidates(candidates, context) {
       if (subTierScore === 0) {
         stats.languageRejected++;
         continue;
+      }
+
+      // Evaluar calidad estricta DESPUÉS de validar idioma/subtítulos para saber cuántas copias válidas en idioma se descartaron por resolución
+      if (!allowQualityFallback && prefQuality !== 'best') {
+        const expectedResMap = { '4k': '4K', '1080p': '1080p', '720p': '720p', sd: 'SD' };
+        const expectedRes = expectedResMap[prefQuality];
+        if (expectedRes && langInfo.resolution !== expectedRes) {
+          stats.qualityRejected = (stats.qualityRejected || 0) + 1;
+          continue;
+        }
       }
 
       score += audioTierScore + subTierScore;

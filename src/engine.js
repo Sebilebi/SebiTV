@@ -82,6 +82,7 @@ export class SebiEngine {
     this.timer = null;
     this.activeSessionEpisodeIds = new Set();
     this.stalledTracker = new Map();
+    this.noAltSlowKeys = new Set();
   }
 
   start() {
@@ -192,6 +193,27 @@ export class SebiEngine {
     return summarizeProfileRule(getPreferences(this.db), Boolean(isAnime));
   }
 
+  #buildNoCandidatesMessage(item, stats = null) {
+    const prefs = getPreferences(this.db);
+    const prof = item.is_anime ? prefs.anime : prefs.regular;
+    const qLabels = { '4k': '4K UHD', '1080p': '1080p', '720p': '720p', sd: 'SD' };
+    if (!prof.allowQualityFallback && prof.videoQuality !== 'best' && (stats?.qualityRejected || 0) > 0) {
+      const qName = qLabels[prof.videoQuality] || prof.videoQuality.toUpperCase();
+      return `No hay copias en ${qName} con tu idioma (${stats.qualityRejected} disponibles en otra resolución; activa el respaldo en 👤 Preferencias o usa 🔍 Lupa).`;
+    }
+    const audLabels = {
+      ja: 'audio Japonés',
+      'es-ES': 'audio Español Castellano',
+      'es-419': 'audio Español Latino',
+      en: 'audio Inglés',
+      any: 'audio disponible',
+    };
+    if (item.is_anime && prof.subPrimary !== 'off') {
+      return `No se encontraron torrents con semillas activas para tu perfil (${audLabels[prof.audioPrimary] || 'audio'} + subtítulos). Prueba con 🔍 Lupa.`;
+    }
+    return `No se encontraron torrents con semillas activas en ${audLabels[prof.audioPrimary] || 'el idioma configurado'}. Prueba con 🔍 Lupa.`;
+  }
+
   async getRichCatalogItem(itemId) {
     const item = this.db.getCatalogItemById(itemId);
     if (!item) return null;
@@ -225,7 +247,7 @@ export class SebiEngine {
     };
   }
 
-  async searchEpisodeCandidates(item, ep, { allLanguages = false } = {}) {
+  async searchEpisodeCandidates(item, ep, { allLanguages = false, statsOut = null, extraRejectedHashes = [] } = {}) {
     const cfg = this.getConfig();
     const preferences = getPreferences(this.db);
     const rawTitles = JSON.parse(item.search_titles_json || '[]');
@@ -334,15 +356,18 @@ export class SebiEngine {
     const batches = await Promise.all(tasks);
     const allNormal = batches.flat();
 
-    const rejectedHashes = allLanguages ? [] : JSON.parse(ep.rejected_hashes_json || '[]');
+    const rejectedHashes = allLanguages
+      ? []
+      : [...JSON.parse(ep.rejected_hashes_json || '[]'), ...extraRejectedHashes];
     const allowExternalSubFallback = Boolean(cfg.subdlApiKey);
-    const statsNormal = {
+    const statsNormal = statsOut || {
       raw: 0,
       noSeeds: 0,
       rejectedHash: 0,
       titleMismatch: 0,
       episodeOrYearMismatch: 0,
       languageRejected: 0,
+      qualityRejected: 0,
       accepted: 0,
     };
 
@@ -423,7 +448,7 @@ export class SebiEngine {
     return merged;
   }
 
-  async searchMovieCandidates(item, { allLanguages = false } = {}) {
+  async searchMovieCandidates(item, { allLanguages = false, statsOut = null, extraRejectedHashes = [] } = {}) {
     const cfg = this.getConfig();
     const preferences = getPreferences(this.db);
     const rawTitles = JSON.parse(item.search_titles_json || '[]');
@@ -482,15 +507,18 @@ export class SebiEngine {
 
     const batches = await Promise.all(tasks);
     const allNormal = batches.flat();
-    const rejectedHashes = allLanguages ? [] : JSON.parse(item.rejected_hashes_json || '[]');
+    const rejectedHashes = allLanguages
+      ? []
+      : [...JSON.parse(item.rejected_hashes_json || '[]'), ...extraRejectedHashes];
     const allowExternalSubFallback = Boolean(cfg.subdlApiKey);
-    const statsMovie = {
+    const statsMovie = statsOut || {
       raw: 0,
       noSeeds: 0,
       rejectedHash: 0,
       titleMismatch: 0,
       episodeOrYearMismatch: 0,
       languageRejected: 0,
+      qualityRejected: 0,
       accepted: 0,
     };
 
@@ -657,20 +685,29 @@ export class SebiEngine {
       }
     }
 
+    const searchStats = {
+      raw: 0,
+      noSeeds: 0,
+      rejectedHash: 0,
+      titleMismatch: 0,
+      episodeOrYearMismatch: 0,
+      languageRejected: 0,
+      qualityRejected: 0,
+      accepted: 0,
+    };
     const candidates = manualCandidate
       ? [manualCandidate]
-      : await this.searchEpisodeCandidates(item, ep);
+      : await this.searchEpisodeCandidates(item, ep, { statsOut: searchStats });
 
     if (candidates.length === 0) {
-      const msg = item.is_anime
-        ? 'No se encontraron torrents con subtítulos en Español (Castellano o Latino).'
-        : 'No se encontraron torrents con audio en Español Castellano.';
+      const msg = this.#buildNoCandidatesMessage(item, searchStats);
       logger.warn('ENGINE', 'episode.no_candidates', `${item.title} S${pad2(ep.season_number)}E${pad2(ep.episode_number)}: ${msg}`, {
         itemId: item.id,
         tmdbId: item.tmdb_id,
         episodeId: ep.id,
         season: ep.season_number,
         episode: ep.episode_number,
+        filterStats: searchStats,
       });
       this.db.updateEpisodeState(ep.id, { status: 'error', statusMessage: msg });
       return this.db.getEpisodeById(ep.id);
@@ -835,14 +872,27 @@ export class SebiEngine {
       ...(pin ? { pinned: true } : {}),
     });
 
+    const searchStats = {
+      raw: 0,
+      noSeeds: 0,
+      rejectedHash: 0,
+      titleMismatch: 0,
+      episodeOrYearMismatch: 0,
+      languageRejected: 0,
+      qualityRejected: 0,
+      accepted: 0,
+    };
     const candidates = manualCandidate
       ? [manualCandidate]
-      : await this.searchMovieCandidates(item);
+      : await this.searchMovieCandidates(item, { statsOut: searchStats });
 
     if (candidates.length === 0) {
-      const msg = item.is_anime
-        ? 'No se encontraron torrents con subtítulos en Español (Castellano o Latino).'
-        : 'No se encontraron torrents en Español Castellano.';
+      const msg = this.#buildNoCandidatesMessage(item, searchStats);
+      logger.warn('ENGINE', 'movie.no_candidates', `${item.title}: ${msg}`, {
+        itemId: item.id,
+        tmdbId: item.tmdb_id,
+        filterStats: searchStats,
+      });
       this.db.updateMovieDownloadState(item.id, { status: 'error', statusMessage: msg });
       return this.getRichCatalogItem(item.id);
     }
@@ -948,8 +998,17 @@ export class SebiEngine {
 
       const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
       const stallKey = `ep:${ep.id}:${ep.torrent_hash}`;
-      const isEffectivelyStalled = !isSeedingState && rawProg < 0.998 && (tor.dlspeed || 0) < 85 * 1024;
-      if (isEffectivelyStalled) {
+      const dlSpeed = tor.dlspeed || 0;
+      const isDeadStalled = !isSeedingState && rawProg < 0.998 && dlSpeed < 15 * 1024;
+      const isSlowCrawl =
+        !isSeedingState &&
+        !ep.manual_override &&
+        !this.noAltSlowKeys.has(stallKey) &&
+        rawProg < 0.45 &&
+        dlSpeed >= 15 * 1024 &&
+        dlSpeed < 160 * 1024;
+
+      if (isDeadStalled || isSlowCrawl) {
         if (!this.stalledTracker.has(stallKey)) this.stalledTracker.set(stallKey, Date.now());
       } else {
         this.stalledTracker.delete(stallKey);
@@ -960,21 +1019,38 @@ export class SebiEngine {
 
       // Caso real en packs españoles (pctnew/wolfmax): pieza frontera de 4 MB compartida con un .txt no semillado (99.89%)
       const readyNearComplete =
-        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && (tor.dlspeed || 0) === 0);
+        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && dlSpeed === 0);
 
       if (rawProg >= 1 || readyNearComplete) {
         this.stalledTracker.delete(stallKey);
+        this.noAltSlowKeys.delete(stallKey);
         await this.#finalizeEpisodeDownload(ep, targetFile, cfg);
         continue;
       }
 
-      // Si lleva >= 35s al <1% (<25 KB/s, incluso con 1 KB/s de ruido DHT) o >= 55s arrastrándose <25 KB/s, saltar al siguiente candidato
-      const stallThresholdMs = rawProg < 0.01 ? 35000 : 55000;
+      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 35000 : 55000) : 60000;
       if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
         this.stalledTracker.delete(stallKey);
-        logger.warn('QBIT', 'torrent.stalled_switch', `Torrent estancado (${pct}% sin semillas activas). Cambiando al siguiente candidato...`, {
+        // Si no está muerto del todo (avanza lento a 15-160 KB/s), comprobar primero si existe otro candidato alternativo antes de abortarlo
+        if (!isDeadStalled) {
+          const item = this.db.getCatalogItemById(ep.item_id);
+          const alts = item
+            ? await this.searchEpisodeCandidates(item, ep, { extraRejectedHashes: [ep.torrent_hash.toLowerCase()] }).catch(() => [])
+            : [];
+          if (alts.length === 0) {
+            this.noAltSlowKeys.add(stallKey);
+            this.db.updateEpisodeState(ep.id, {
+              progress: pct,
+              downloadSpeed: dlSpeed,
+              statusMessage: `Descargando ${displayPct}% (única fuente activa)`,
+            });
+            continue;
+          }
+        }
+        logger.warn('QBIT', 'torrent.stalled_switch', `Torrent lento o estancado (${pct}%, ${Math.round(dlSpeed / 1024)} KB/s). Cambiando al siguiente candidato...`, {
           episodeId: ep.id,
           hash: ep.torrent_hash,
+          dlSpeedKb: Math.round(dlSpeed / 1024),
         });
         const rejected = JSON.parse(ep.rejected_hashes_json || '[]');
         rejected.push(ep.torrent_hash.toLowerCase());
@@ -1020,8 +1096,17 @@ export class SebiEngine {
       const pct = rawProg >= 1 ? 100 : Math.min(99.9, Math.floor(rawProg * 1000) / 10);
       const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
       const stallKey = `mov:${movie.id}:${movie.torrent_hash}`;
-      const isEffectivelyStalled = !isSeedingState && rawProg < 0.998 && (tor.dlspeed || 0) < 85 * 1024;
-      if (isEffectivelyStalled) {
+      const dlSpeed = tor.dlspeed || 0;
+      const isDeadStalled = !isSeedingState && rawProg < 0.998 && dlSpeed < 15 * 1024;
+      const isSlowCrawl =
+        !isSeedingState &&
+        !movie.manual_override &&
+        !this.noAltSlowKeys.has(stallKey) &&
+        rawProg < 0.45 &&
+        dlSpeed >= 15 * 1024 &&
+        dlSpeed < 160 * 1024;
+
+      if (isDeadStalled || isSlowCrawl) {
         if (!this.stalledTracker.has(stallKey)) this.stalledTracker.set(stallKey, Date.now());
       } else {
         this.stalledTracker.delete(stallKey);
@@ -1031,20 +1116,36 @@ export class SebiEngine {
         : 0;
 
       const readyNearComplete =
-        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && (tor.dlspeed || 0) === 0);
+        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && dlSpeed === 0);
 
       if (rawProg >= 1 || readyNearComplete) {
         this.stalledTracker.delete(stallKey);
+        this.noAltSlowKeys.delete(stallKey);
         await this.#finalizeMovieDownload(movie, movieFile, cfg);
         continue;
       }
 
-      const stallThresholdMs = rawProg < 0.01 ? 35000 : 55000;
+      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 35000 : 55000) : 60000;
       if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
         this.stalledTracker.delete(stallKey);
-        logger.warn('QBIT', 'movie.stalled_switch', `Película estancada (${pct}% sin semillas activas). Cambiando al siguiente candidato...`, {
+        if (!isDeadStalled) {
+          const alts = await this.searchMovieCandidates(movie, {
+            extraRejectedHashes: [movie.torrent_hash.toLowerCase()],
+          }).catch(() => []);
+          if (alts.length === 0) {
+            this.noAltSlowKeys.add(stallKey);
+            this.db.updateMovieDownloadState(movie.id, {
+              progress: pct,
+              downloadSpeed: dlSpeed,
+              statusMessage: `Descargando ${Math.floor(rawProg * 100)}% (única fuente activa)`,
+            });
+            continue;
+          }
+        }
+        logger.warn('QBIT', 'movie.stalled_switch', `Película lenta o estancada (${pct}%, ${Math.round(dlSpeed / 1024)} KB/s). Cambiando al siguiente candidato...`, {
           itemId: movie.id,
           hash: movie.torrent_hash,
+          dlSpeedKb: Math.round(dlSpeed / 1024),
         });
         const rejected = JSON.parse(movie.rejected_hashes_json || '[]');
         rejected.push(movie.torrent_hash.toLowerCase());

@@ -1439,7 +1439,6 @@
           },
         };
         await api('/api/preferences', { method: 'POST', body: JSON.stringify(payload) });
-        uiLog('ui.save_preferences', 'Guardó preferencias de idioma y calidad de vídeo', payload);
         document.getElementById('sebitv-prefs-msg').textContent = '✔ Preferencias de idioma y calidad guardadas';
       };
     } catch (err) {

@@ -871,15 +871,44 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(dune720[0].resolution, '720p');
 
-  // d) Modo estricto (allowQualityFallback: false): si exige '4k' y solo existen 1080p/720p -> descarta ambos (0 resultados)
-  const duneStrict4kMissing = scoreAndFilterCandidates(multiResMoviePool.slice(1), {
+  // d) Modo estricto (allowQualityFallback: false): si exige '4k' y solo existen 1080p/720p en Castellano + un 4K en Inglés + un BDMV -> descarta todos y reporta exactamente 2 qualityRejected (las copias válidas en idioma)
+  const strictStats = {
+    raw: 0,
+    noSeeds: 0,
+    rejectedHash: 0,
+    titleMismatch: 0,
+    episodeOrYearMismatch: 0,
+    languageRejected: 0,
+    qualityRejected: 0,
+    accepted: 0,
+  };
+  const duneStrictPool = [
+    ...multiResMoviePool.slice(1), // 1080p y 720p en Castellano
+    {
+      source: 'nyaa.si',
+      title: 'Dune Part Two (2024) 2160p UHD BluRay x265 English',
+      seeders: 60,
+      sizeBytes: 18e9,
+    },
+    {
+      source: 'nyaa.si',
+      title: 'Dune.Part.Two.2024.MULTI.Castellano.BDMV.2160p.HEVC',
+      seeders: 10,
+      sizeBytes: 40e9,
+    },
+  ];
+  const duneStrict4kMissing = scoreAndFilterCandidates(duneStrictPool, {
     isAnime: false,
     mediaType: 'movie',
     acceptedTitles: ['Dune: Parte Dos', 'Dune Part Two'],
     year: 2024,
     preferences: { regular: { videoQuality: '4k', allowQualityFallback: false } },
+    statsOut: strictStats,
   });
   assert.equal(duneStrict4kMissing.length, 0);
+  assert.equal(strictStats.languageRejected, 1); // El 4K en inglés cae por idioma
+  assert.equal(strictStats.episodeOrYearMismatch, 1); // El BDMV crudo cae como estructura no reproducible directa
+  assert.equal(strictStats.qualityRejected, 2); // Solo las 2 copias en Castellano (1080p y 720p) cuentan como rechazadas por calidad
 
   // e) En modo Lupa (allLanguages: true) devuelve siempre todas las calidades sin bloquear por calidad estricta
   const duneLupaAll = scoreAndFilterCandidates(multiResMoviePool.slice(1), {

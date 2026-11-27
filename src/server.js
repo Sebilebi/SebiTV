@@ -255,7 +255,7 @@ export function createSebiApp() {
       if (req.method === 'POST' && pathname === '/api/preferences') {
         const body = await readJsonBody(req);
         const updated = savePreferences(db, body);
-        logger.user('preferences.saved', 'Preferencias de idioma actualizadas por el usuario', updated);
+        logger.user('preferences.saved', 'Preferencias de idioma y calidad actualizadas por el usuario', updated);
         sendJson(res, 200, { ok: true, preferences: updated });
         return;
       }

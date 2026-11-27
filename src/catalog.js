@@ -388,6 +388,7 @@ export class CatalogService {
           animePriority.add(match.title.english.trim());
         }
         for (const s of match.synonyms || []) {
+          if (/[äöüßőűąćęłńśźżčřšž]/i.test(s)) continue;
           if (type === 'tv' || s.trim().split(/\s+/).length >= 2) pushClean(s);
         }
         for (const existing of searchTitleSet) animePriority.add(existing);
