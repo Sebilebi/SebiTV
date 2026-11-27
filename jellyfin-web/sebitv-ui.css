@@ -1,118 +1,282 @@
 /* ==========================================================================
-   SebiTV — Interfaz Integrada en Jellyfin 12.4 (PC + Móvil Android/iOS)
+   SebiTV — Interfaz Nativa Estilo Jellyfin 12.4 (Material Dark UI)
    ========================================================================== */
 
 :root {
+  --sebi-font: 'Noto Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --sebi-accent: #00a4dc;
-  --sebi-accent-hover: #1cb5ea;
-  --sebi-green: #2ecc71;
-  --sebi-amber: #f39c12;
-  --sebi-red: #e74c3c;
-  --sebi-bg: #101216;
-  --sebi-surface: #181c22;
-  --sebi-surface-2: #222832;
-  --sebi-border: rgba(255, 255, 255, 0.1);
-  --sebi-text: #f3f5f8;
-  --sebi-muted: #9aa4b2;
+  --sebi-accent-hover: #1cb3e8;
+  --sebi-accent-soft: rgba(0, 164, 220, 0.14);
+  --sebi-green: #38c172;
+  --sebi-green-hover: #46cf80;
+  --sebi-amber: #f59e0b;
+  --sebi-red: #ef4444;
+  --sebi-bg: #101010;
+  --sebi-surface: #18181b;
+  --sebi-surface-2: #222226;
+  --sebi-surface-hover: #2b2b30;
+  --sebi-border: rgba(255, 255, 255, 0.08);
+  --sebi-border-strong: rgba(255, 255, 255, 0.15);
+  --sebi-text: rgba(255, 255, 255, 0.94);
+  --sebi-muted: rgba(255, 255, 255, 0.62);
+  --sebi-radius-sm: 4px;
+  --sebi-radius: 6px;
+  --sebi-radius-lg: 10px;
 }
 
-/* Botón flotante / barra de acceso rápido compatible con cabecera PC y WebView Móvil */
+/* Iconos vectoriales Material integrados (sin emojis) */
+.sebitv-ico {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  fill: currentColor;
+}
+
+.sebitv-ico.sm {
+  width: 15px;
+  height: 15px;
+}
+
+.sebitv-ico.lg {
+  width: 20px;
+  height: 20px;
+}
+
+@keyframes sebitv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sebitv-spin {
+  animation: sebitv-spin 0.9s linear infinite;
+}
+
+/* ==========================================================================
+   1. Ocultación estricta e instantánea del HUD durante reproducción de vídeo
+   ========================================================================== */
+body:has(#videoOsdPage:not(.hide)) .sebitv-fab-bar,
+body:has(.videoOsdPage:not(.hide)) .sebitv-fab-bar,
+body:has(.videoPlayerContainer) .sebitv-fab-bar,
+body:has(video.htmlvideoplayer) .sebitv-fab-bar,
+:fullscreen .sebitv-fab-bar,
+:-webkit-full-screen .sebitv-fab-bar,
+.sebitv-fab-bar.is-hidden-video {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* ==========================================================================
+   2. Dock Flotante Minimalista + Botón Integrado en Cabecera de Jellyfin
+   ========================================================================== */
 .sebitv-fab-bar {
   position: fixed;
-  right: 18px;
+  right: 20px;
   bottom: 20px;
-  z-index: 9990;
+  z-index: 990;
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(18, 22, 28, 0.92);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(0, 164, 220, 0.45);
-  border-radius: 999px;
-  padding: 6px 10px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
-  font-family: inherit;
+  gap: 4px;
+  background: rgba(20, 20, 23, 0.88);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  font-family: var(--sebi-font);
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
 @media (max-width: 768px) {
   .sebitv-fab-bar {
-    bottom: 72px; /* Encima de la barra inferior móvil de Jellyfin */
+    bottom: 68px;
     right: 12px;
-    padding: 5px 8px;
   }
 }
 
-.sebitv-pill-btn {
+.sebitv-dock-btn {
   appearance: none;
   border: none;
-  background: var(--sebi-accent);
-  color: #fff;
-  font-weight: 600;
-  font-size: 13px;
-  padding: 8px 14px;
-  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 6px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  transition: background 0.15s ease, transform 0.1s ease;
-  white-space: nowrap;
+  justify-content: center;
+  gap: 7px;
+  font-family: var(--sebi-font);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: background 0.15s ease, color 0.15s ease;
+  position: relative;
 }
 
-.sebitv-pill-btn:hover {
+.sebitv-dock-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.sebitv-dock-btn.primary {
+  background: rgba(0, 164, 220, 0.16);
+  color: #5cd3ff;
+  font-weight: 600;
+  padding: 0 13px;
+}
+
+.sebitv-dock-btn.primary:hover {
+  background: var(--sebi-accent);
+  color: #fff;
+}
+
+.sebitv-dock-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0 2px;
+}
+
+.sebitv-header-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.9);
+  height: 34px;
+  padding: 0 12px;
+  margin-right: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--sebi-font);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sebitv-header-btn:hover {
+  background: rgba(0, 164, 220, 0.2);
+  border-color: rgba(0, 164, 220, 0.5);
+  color: #fff;
+}
+
+/* ==========================================================================
+   3. Botones Estilo Jellyfin (emby-button / raised / flat)
+   ========================================================================== */
+.sebitv-pill-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: var(--sebi-accent);
+  color: #fff;
+  font-family: var(--sebi-font);
+  font-weight: 500;
+  font-size: 13px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--sebi-radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.sebitv-pill-btn:hover:not(:disabled) {
   background: var(--sebi-accent-hover);
 }
 
-.sebitv-pill-btn.secondary {
-  background: var(--sebi-surface-2);
-  color: var(--sebi-text);
-  border: 1px solid var(--sebi-border);
+.sebitv-pill-btn:disabled {
+  opacity: 0.58;
+  cursor: default;
 }
 
-.sebitv-pill-btn.secondary:hover {
-  background: #2d3542;
+.sebitv-pill-btn.icon-only {
+  width: 36px;
+  padding: 0;
+}
+
+.sebitv-pill-btn.secondary {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--sebi-text);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.sebitv-pill-btn.secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .sebitv-pill-btn.play-ready {
-  background: var(--sebi-green);
-  color: #081b0f;
-  font-weight: 700;
+  background: #fff;
+  color: #0b0b0c;
+  font-weight: 600;
+}
+
+.sebitv-pill-btn.play-ready:hover:not(:disabled) {
+  background: #e4e7ec;
 }
 
 .sebitv-pill-btn.danger {
-  background: rgba(231, 76, 60, 0.16);
-  color: #ff7b6e;
-  border: 1px solid rgba(231, 76, 60, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.sebitv-pill-btn.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
 }
 
 .sebitv-pill-btn.pinned {
-  background: rgba(243, 156, 18, 0.22);
-  color: #ffc048;
-  border: 1px solid rgba(243, 156, 18, 0.5);
+  background: rgba(0, 164, 220, 0.18);
+  color: #67d6ff;
+  border-color: rgba(0, 164, 220, 0.45);
 }
 
 .sebitv-badge-count {
-  background: var(--sebi-amber);
-  color: #111;
+  background: var(--sebi-accent);
+  color: #fff;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   border-radius: 999px;
-  padding: 1px 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
-/* Secciones inyectadas en Inicio y Búsqueda de Jellyfin */
+/* ==========================================================================
+   4. Carruseles y Tarjetas estilo Jellyfin (.cardBox / .cardScalable)
+   ========================================================================== */
 .sebitv-home-wrapper {
-  padding: 10px 3.3% 28px;
+  padding: 8px 3.3% 32px;
+  font-family: var(--sebi-font);
 }
 
 .sebitv-section-title {
-  font-size: 1.35rem;
+  font-size: 1.22rem;
   font-weight: 600;
   color: var(--sebi-text);
-  margin: 20px 0 12px;
+  margin: 22px 0 12px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  letter-spacing: -0.01em;
 }
 
 .sebitv-carousel {
@@ -121,18 +285,19 @@
   overflow-x: auto;
   padding-bottom: 10px;
   scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
 }
 
 .sebitv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));
+  gap: 18px 14px;
 }
 
 @media (max-width: 600px) {
   .sebitv-grid {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(122px, 1fr));
+    gap: 14px 10px;
   }
 }
 
@@ -140,11 +305,8 @@
   flex: 0 0 156px;
   scroll-snap-align: start;
   cursor: pointer;
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--sebi-surface);
-  border: 1px solid var(--sebi-border);
-  transition: transform 0.16s ease, border-color 0.16s ease;
+  background: transparent;
+  transition: transform 0.16s ease;
   position: relative;
 }
 
@@ -152,51 +314,71 @@
   flex: initial;
 }
 
-.sebitv-card:hover {
-  transform: translateY(-3px);
+.sebitv-card-poster-wrap {
+  position: relative;
+  border-radius: var(--sebi-radius);
+  overflow: hidden;
+  background: #1a1a1d;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.sebitv-card:hover .sebitv-card-poster-wrap {
   border-color: var(--sebi-accent);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.65);
 }
 
 .sebitv-card-poster {
   width: 100%;
   aspect-ratio: 2 / 3;
   object-fit: cover;
-  background: #0b0d10;
   display: block;
+  transition: transform 0.22s ease;
+}
+
+.sebitv-card:hover .sebitv-card-poster {
+  transform: scale(1.03);
 }
 
 .sebitv-card-tag {
   position: absolute;
   top: 7px;
   left: 7px;
-  background: rgba(10, 14, 20, 0.85);
-  color: #fff;
-  font-size: 10px;
+  background: rgba(16, 16, 19, 0.84);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 9.5px;
   font-weight: 700;
-  padding: 3px 7px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: var(--sebi-radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .sebitv-card-ready {
   position: absolute;
   top: 7px;
   right: 7px;
-  background: var(--sebi-green);
-  color: #06210f;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 3px 6px;
-  border-radius: 6px;
+  background: var(--sebi-accent);
+  color: #fff;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
 }
 
 .sebitv-card-body {
-  padding: 8px 10px 10px;
+  padding: 7px 2px 2px;
 }
 
 .sebitv-card-title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--sebi-text);
   white-space: nowrap;
   overflow: hidden;
@@ -204,27 +386,34 @@
 }
 
 .sebitv-card-sub {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--sebi-muted);
   margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
-/* Modal a pantalla completa / panel de catálogo y detalles */
+/* ==========================================================================
+   5. Modal / Panel Principal estilo Jellyfin Dialog
+   ========================================================================== */
 .sebitv-overlay {
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: rgba(6, 8, 12, 0.86);
-  backdrop-filter: blur(10px);
+  background: rgba(8, 8, 10, 0.84);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
   justify-content: center;
   align-items: flex-start;
   overflow-y: auto;
-  padding: 24px 16px 60px;
+  padding: 24px 16px 56px;
   color: var(--sebi-text);
+  font-family: var(--sebi-font);
 }
 
-@media (max-width: 680px) {
+@media (max-width: 720px) {
   .sebitv-overlay {
     padding: 0;
   }
@@ -232,15 +421,15 @@
 
 .sebitv-modal {
   width: 100%;
-  max-width: 1080px;
+  max-width: 1120px;
   background: var(--sebi-bg);
   border: 1px solid var(--sebi-border);
-  border-radius: 16px;
+  border-radius: var(--sebi-radius-lg);
   overflow: hidden;
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.75);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8);
 }
 
-@media (max-width: 680px) {
+@media (max-width: 720px) {
   .sebitv-modal {
     border-radius: 0;
     min-height: 100vh;
@@ -251,52 +440,134 @@
 .sebitv-modal-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 20px;
-  background: var(--sebi-surface);
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 18px;
+  background: rgba(24, 24, 27, 0.96);
   border-bottom: 1px solid var(--sebi-border);
   position: sticky;
   top: 0;
   z-index: 5;
 }
 
-.sebitv-search-input {
+.sebitv-nav-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sebitv-nav-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--sebi-muted);
+  font-family: var(--sebi-font);
+  font-size: 13px;
+  font-weight: 500;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--sebi-radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.sebitv-nav-tab:hover {
+  color: var(--sebi-text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sebitv-nav-tab.active {
+  color: var(--sebi-accent);
+  background: rgba(0, 164, 220, 0.12);
+  font-weight: 600;
+}
+
+.sebitv-search-wrap {
+  position: relative;
   flex: 1;
+  min-width: 200px;
+  max-width: 380px;
+}
+
+.sebitv-search-wrap .sebitv-search-ico {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--sebi-muted);
+  pointer-events: none;
+  display: flex;
+}
+
+.sebitv-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 36px;
   background: var(--sebi-surface-2);
   border: 1px solid var(--sebi-border);
   color: var(--sebi-text);
-  padding: 10px 14px;
-  border-radius: 999px;
-  font-size: 14px;
+  padding: 0 12px 0 35px;
+  border-radius: var(--sebi-radius);
+  font-family: var(--sebi-font);
+  font-size: 13px;
   outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .sebitv-search-input:focus {
   border-color: var(--sebi-accent);
+  background: #27272c;
+}
+
+.sebitv-close-icon-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--sebi-muted);
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sebitv-close-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
 }
 
 .sebitv-modal-content {
-  padding: 20px;
+  padding: 20px 22px 26px;
 }
 
-/* Cabecera hero de Película / Serie / Anime */
+/* ==========================================================================
+   6. Ficha Hero y Filas de Episodios estilo #itemDetailPage de Jellyfin
+   ========================================================================== */
 .sebitv-hero {
   display: flex;
-  gap: 22px;
+  gap: 24px;
   background-size: cover;
-  background-position: center;
-  padding: 24px;
-  border-radius: 12px;
+  background-position: center 20%;
+  padding: 26px;
+  border-radius: var(--sebi-radius-lg);
   position: relative;
   overflow: hidden;
   border: 1px solid var(--sebi-border);
+  background-color: var(--sebi-surface);
 }
 
 .sebitv-hero::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(12, 15, 20, 0.96) 25%, rgba(12, 15, 20, 0.78) 100%);
+  background: linear-gradient(90deg, rgba(16, 16, 18, 0.96) 28%, rgba(16, 16, 18, 0.78) 100%);
 }
 
 .sebitv-hero > * {
@@ -305,11 +576,33 @@
 }
 
 .sebitv-hero-poster {
-  width: 165px;
-  border-radius: 10px;
+  width: 160px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--sebi-radius);
   object-fit: cover;
   flex-shrink: 0;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sebitv-rule-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.sebitv-rule-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 3px 9px;
+  border-radius: var(--sebi-radius-sm);
 }
 
 @media (max-width: 680px) {
@@ -317,62 +610,74 @@
     flex-direction: column;
     align-items: center;
     text-align: center;
-    padding: 16px;
+    padding: 18px;
   }
   .sebitv-hero-poster {
-    width: 135px;
+    width: 132px;
+  }
+  .sebitv-rule-pills,
+  .sebitv-hero-actions {
+    justify-content: center;
   }
 }
 
 .sebitv-hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   margin-top: 16px;
 }
 
-@media (max-width: 680px) {
-  .sebitv-hero-actions {
-    justify-content: center;
-  }
-}
-
-/* Pestañas de temporadas y lista de capítulos */
+/* Pestañas de temporada estilo Jellyfin Tabs */
 .sebitv-season-tabs {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
   margin: 20px 0 14px;
   padding-bottom: 6px;
+  border-bottom: 1px solid var(--sebi-border);
 }
 
 .sebitv-season-tab {
-  background: var(--sebi-surface);
+  appearance: none;
+  background: transparent;
   color: var(--sebi-muted);
-  border: 1px solid var(--sebi-border);
-  border-radius: 999px;
-  padding: 7px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 14px;
+  font-family: var(--sebi-font);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.sebitv-season-tab:hover {
+  color: var(--sebi-text);
 }
 
 .sebitv-season-tab.active {
-  background: var(--sebi-accent);
-  color: #fff;
-  border-color: var(--sebi-accent);
+  color: var(--sebi-accent);
+  border-bottom-color: var(--sebi-accent);
+  font-weight: 600;
 }
 
 .sebitv-episode-row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   background: var(--sebi-surface);
   border: 1px solid var(--sebi-border);
-  border-radius: 10px;
-  padding: 12px;
-  margin-bottom: 10px;
+  border-radius: var(--sebi-radius);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sebitv-episode-row:hover {
+  background: #1d1d21;
+  border-color: rgba(255, 255, 255, 0.13);
 }
 
 @media (max-width: 640px) {
@@ -383,11 +688,11 @@
 }
 
 .sebitv-ep-thumb {
-  width: 130px;
+  width: 140px;
   aspect-ratio: 16 / 9;
-  border-radius: 7px;
+  border-radius: var(--sebi-radius-sm);
   object-fit: cover;
-  background: #0d1014;
+  background: #0d0d0f;
   flex-shrink: 0;
 }
 
@@ -403,15 +708,35 @@
 }
 
 .sebitv-ep-title {
-  font-weight: 600;
+  font-weight: 500;
   font-size: 14px;
   color: var(--sebi-text);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sebitv-ep-code {
+  color: var(--sebi-accent);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.sebitv-watched-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--sebi-green);
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
 .sebitv-ep-desc {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--sebi-muted);
   margin-top: 4px;
+  line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -421,22 +746,22 @@
 .sebitv-ep-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
   flex-wrap: wrap;
 }
 
 .sebitv-progress-box {
-  min-width: 155px;
+  min-width: 165px;
   background: var(--sebi-surface-2);
-  border-radius: 8px;
+  border-radius: var(--sebi-radius);
   padding: 6px 10px;
-  border: 1px solid rgba(0, 164, 220, 0.35);
+  border: 1px solid rgba(0, 164, 220, 0.3);
 }
 
 .sebitv-progress-bar-bg {
-  height: 5px;
-  background: rgba(255, 255, 255, 0.12);
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 99px;
   overflow: hidden;
   margin-top: 5px;
@@ -448,28 +773,33 @@
   transition: width 0.35s ease;
 }
 
-/* Barra inyectada directamente dentro de las páginas nativas de Series/Capítulos de Jellyfin */
+/* Barra integrada en fichas #/details nativas de Jellyfin */
 .sebitv-native-banner {
   margin: 14px 0;
-  padding: 14px 18px;
-  background: rgba(24, 28, 34, 0.92);
-  border: 1px solid rgba(0, 164, 220, 0.4);
-  border-radius: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: 3px solid var(--sebi-accent);
+  border-radius: var(--sebi-radius);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  font-family: var(--sebi-font);
+  font-size: 13.5px;
 }
 
+/* Formularios, Preferencias y Chips de Estado */
 .sebitv-form-group {
   margin-bottom: 14px;
 }
 
 .sebitv-form-group label {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.84);
   margin-bottom: 5px;
 }
 
@@ -480,22 +810,50 @@
   border: 1px solid var(--sebi-border);
   color: var(--sebi-text);
   padding: 9px 12px;
-  border-radius: 8px;
+  border-radius: var(--sebi-radius);
+  font-family: var(--sebi-font);
   font-size: 13px;
+  outline: none;
+}
+
+.sebitv-form-group input:focus {
+  border-color: var(--sebi-accent);
 }
 
 .sebitv-status-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: var(--sebi-surface-2);
+  gap: 7px;
+  padding: 6px 11px;
+  border-radius: var(--sebi-radius);
+  background: var(--sebi-surface);
+  border: 1px solid var(--sebi-border);
   font-size: 12px;
   margin: 3px;
 }
 
-/* Perfiles de Preferencias de Idioma (Anime vs Series y Películas) */
+.sebitv-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.sebitv-dot.ok {
+  background: var(--sebi-green);
+  box-shadow: 0 0 8px rgba(56, 193, 114, 0.45);
+}
+
+.sebitv-dot.warn {
+  background: var(--sebi-amber);
+}
+
+.sebitv-dot.err {
+  background: var(--sebi-red);
+}
+
 .sebitv-pref-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
@@ -506,8 +864,18 @@
 .sebitv-pref-card {
   background: var(--sebi-surface);
   border: 1px solid var(--sebi-border);
-  border-radius: 12px;
-  padding: 16px 18px;
+  border-radius: var(--sebi-radius-lg);
+  padding: 18px;
+}
+
+.sebitv-pref-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--sebi-text);
 }
 
 .sebitv-select {
@@ -516,7 +884,8 @@
   border: 1px solid var(--sebi-border);
   color: var(--sebi-text);
   padding: 9px 12px;
-  border-radius: 8px;
+  border-radius: var(--sebi-radius);
+  font-family: var(--sebi-font);
   font-size: 13px;
   outline: none;
 }
@@ -528,25 +897,26 @@
 .sebitv-lang-chip {
   display: inline-flex;
   align-items: center;
-  background: rgba(0, 164, 220, 0.14);
+  gap: 4px;
+  background: rgba(0, 164, 220, 0.12);
   color: #8be0ff;
-  border: 1px solid rgba(0, 164, 220, 0.32);
-  border-radius: 6px;
-  padding: 2px 8px;
+  border: 1px solid rgba(0, 164, 220, 0.28);
+  border-radius: var(--sebi-radius-sm);
+  padding: 2px 7px;
   font-size: 11px;
   font-weight: 600;
 }
 
 .sebitv-lang-chip.is-castellano {
-  background: rgba(46, 204, 113, 0.15);
+  background: rgba(56, 193, 114, 0.14);
   color: #7bf5b0;
-  border-color: rgba(46, 204, 113, 0.38);
+  border-color: rgba(56, 193, 114, 0.34);
 }
 
 .sebitv-pref-quality-box {
-  background: rgba(0, 164, 220, 0.07);
-  border: 1px solid rgba(0, 164, 220, 0.26);
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: var(--sebi-radius);
   padding: 12px 14px;
   margin-bottom: 16px;
 }
@@ -567,15 +937,15 @@
 }
 
 /* ==========================================================================
-   Explorador Avanzado de Versiones (🔍 Lupa) — v1.6.0
+   7. Explorador Avanzado de Versiones (Lupa) — Estilo Jellyfin Material
    ========================================================================== */
 .sebitv-lupa-panel {
-  background: linear-gradient(180deg, #19202a 0%, #12161d 100%);
-  border: 1px solid rgba(0, 164, 220, 0.42);
-  border-radius: 14px;
+  background: var(--sebi-surface);
+  border: 1px solid var(--sebi-border-strong);
+  border-radius: var(--sebi-radius-lg);
   padding: 18px;
   margin-bottom: 18px;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.48);
 }
 
 .sebitv-lupa-header {
@@ -592,20 +962,20 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  font-size: 1.08rem;
-  font-weight: 700;
+  gap: 8px;
+  font-size: 1.05rem;
+  font-weight: 600;
   color: var(--sebi-text);
 }
 
 .sebitv-lupa-counter {
   font-size: 11px;
-  font-weight: 700;
-  background: rgba(0, 164, 220, 0.18);
+  font-weight: 600;
+  background: var(--sebi-accent-soft);
   color: #7fdcff;
-  border: 1px solid rgba(0, 164, 220, 0.35);
-  border-radius: 999px;
-  padding: 2px 9px;
+  border: 1px solid rgba(0, 164, 220, 0.3);
+  border-radius: var(--sebi-radius-sm);
+  padding: 2px 8px;
 }
 
 .sebitv-lupa-subtitle {
@@ -638,7 +1008,7 @@
 .sebitv-lupa-query-wrap label {
   display: block;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--sebi-muted);
@@ -649,12 +1019,13 @@
 .sebitv-lupa-query-input {
   width: 100%;
   box-sizing: border-box;
-  height: 38px;
-  background: rgba(10, 13, 18, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.13);
+  height: 36px;
+  background: var(--sebi-surface-2);
+  border: 1px solid var(--sebi-border);
   color: var(--sebi-text);
-  border-radius: 9px;
+  border-radius: var(--sebi-radius);
   padding: 0 12px;
+  font-family: var(--sebi-font);
   font-size: 13px;
   outline: none;
 }
@@ -673,7 +1044,7 @@
 
 .sebitv-lupa-filter-label {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--sebi-muted);
@@ -683,52 +1054,52 @@
 .sebitv-lupa-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 6px;
   flex: 1;
 }
 
 .sebitv-filter-chip {
   appearance: none;
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--sebi-text);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  padding: 5px 11px;
+  border: 1px solid var(--sebi-border);
+  border-radius: var(--sebi-radius);
+  padding: 5px 10px;
+  font-family: var(--sebi-font);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: all 0.15s ease;
+  transition: all 0.14s ease;
 }
 
 .sebitv-filter-chip:hover {
   background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(0, 164, 220, 0.45);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .sebitv-filter-chip.active {
   background: var(--sebi-accent);
   color: #fff;
   border-color: var(--sebi-accent);
-  box-shadow: 0 3px 12px rgba(0, 164, 220, 0.35);
 }
 
 .sebitv-filter-chip.is-empty {
-  opacity: 0.38;
+  opacity: 0.36;
 }
 
 .sebitv-chip-num {
-  font-size: 10px;
-  font-weight: 800;
-  background: rgba(0, 0, 0, 0.28);
-  border-radius: 999px;
-  padding: 1px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--sebi-radius-sm);
+  padding: 1px 5px;
 }
 
 .sebitv-filter-chip.active .sebitv-chip-num {
-  background: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.22);
   color: #fff;
 }
 
@@ -739,7 +1110,7 @@
   padding-right: 4px;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 8px;
 }
 
 .sebitv-lupa-empty {
@@ -747,8 +1118,8 @@
   padding: 28px 16px;
   color: var(--sebi-muted);
   font-size: 13px;
-  background: rgba(255, 255, 255, 0.025);
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--sebi-radius);
   border: 1px dashed var(--sebi-border);
 }
 
@@ -757,9 +1128,9 @@
   align-items: center;
   gap: 14px;
   background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 11px;
-  padding: 11px 14px;
+  border: 1px solid var(--sebi-border);
+  border-radius: var(--sebi-radius);
+  padding: 10px 14px;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
@@ -769,8 +1140,8 @@
 }
 
 .sebitv-lupa-card.is-top {
-  border-color: rgba(46, 204, 113, 0.45);
-  background: linear-gradient(90deg, rgba(46, 204, 113, 0.08) 0%, rgba(255, 255, 255, 0.03) 45%);
+  border-color: rgba(0, 164, 220, 0.5);
+  background: linear-gradient(90deg, rgba(0, 164, 220, 0.09) 0%, rgba(255, 255, 255, 0.03) 45%);
 }
 
 @media (max-width: 680px) {
@@ -780,14 +1151,13 @@
   }
   .sebitv-lupa-card-action .sebitv-pill-btn {
     width: 100%;
-    justify-content: center;
   }
 }
 
 .sebitv-res-badge {
-  width: 68px;
+  width: 66px;
   flex-shrink: 0;
-  border-radius: 9px;
+  border-radius: var(--sebi-radius);
   padding: 7px 6px;
   text-align: center;
   display: flex;
@@ -799,41 +1169,41 @@
 
 .sebitv-res-main {
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.1;
 }
 
 .sebitv-res-sub {
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  opacity: 0.82;
+  opacity: 0.8;
   margin-top: 2px;
 }
 
 .sebitv-res-badge.res-4k {
-  background: linear-gradient(135deg, rgba(243, 156, 18, 0.24), rgba(155, 89, 182, 0.24));
-  color: #ffd56b;
-  border-color: rgba(243, 156, 18, 0.5);
+  background: rgba(245, 158, 11, 0.14);
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.38);
 }
 
 .sebitv-res-badge.res-1080p {
-  background: rgba(0, 164, 220, 0.18);
-  color: #6fd8ff;
-  border-color: rgba(0, 164, 220, 0.42);
+  background: rgba(0, 164, 220, 0.15);
+  color: #7dd3fc;
+  border-color: rgba(0, 164, 220, 0.36);
 }
 
 .sebitv-res-badge.res-720p {
-  background: rgba(46, 204, 113, 0.16);
-  color: #74f2ad;
-  border-color: rgba(46, 204, 113, 0.36);
+  background: rgba(56, 193, 114, 0.14);
+  color: #86efac;
+  border-color: rgba(56, 193, 114, 0.32);
 }
 
 .sebitv-res-badge.res-sd {
-  background: rgba(154, 164, 178, 0.14);
-  color: #cbd3de;
-  border-color: rgba(154, 164, 178, 0.3);
+  background: rgba(255, 255, 255, 0.07);
+  color: #cbd5e1;
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .sebitv-lupa-card-body {
@@ -843,7 +1213,7 @@
 
 .sebitv-lupa-card-title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--sebi-text);
   word-break: break-word;
   line-height: 1.35;
@@ -854,17 +1224,25 @@
 }
 
 .sebitv-top-tag {
-  background: rgba(46, 204, 113, 0.2);
-  color: #7bf5b0;
-  border: 1px solid rgba(46, 204, 113, 0.45);
-  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(0, 164, 220, 0.2);
+  color: #7dd3fc;
+  border: 1px solid rgba(0, 164, 220, 0.42);
+  border-radius: var(--sebi-radius-sm);
   padding: 1px 6px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
 .sebitv-lupa-subfile {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
   color: #93b4cc;
   margin-top: 3px;
@@ -883,58 +1261,61 @@
 .sebitv-tech-chip {
   display: inline-flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.07);
-  color: #d6dde6;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #d4d4d8;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--sebi-radius-sm);
   padding: 1px 6px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
 }
 
 .sebitv-tech-chip.is-heavy {
-  background: rgba(243, 156, 18, 0.16);
-  color: #ffc864;
-  border-color: rgba(243, 156, 18, 0.4);
+  background: rgba(245, 158, 11, 0.14);
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.34);
 }
 
 .sebitv-lupa-meta-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   margin-top: 7px;
 }
 
 .sebitv-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--sebi-muted);
-  background: rgba(0, 0, 0, 0.26);
+  background: rgba(0, 0, 0, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 6px;
-  padding: 2px 8px;
+  border-radius: var(--sebi-radius-sm);
+  padding: 2px 7px;
 }
 
 .sebitv-meta-pill.seeds-high {
-  color: #7bf5b0;
-  border-color: rgba(46, 204, 113, 0.28);
+  color: #86efac;
+  border-color: rgba(56, 193, 114, 0.25);
 }
 
 .sebitv-meta-pill.seeds-mid {
-  color: #ffe082;
-  border-color: rgba(243, 156, 18, 0.28);
+  color: #fde68a;
+  border-color: rgba(245, 158, 11, 0.25);
 }
 
 .sebitv-meta-pill.seeds-low {
-  color: #ffab91;
-  border-color: rgba(231, 76, 60, 0.28);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.25);
 }
 
 .sebitv-meta-pill.is-pack {
-  color: #9ddaff;
-  border-color: rgba(0, 164, 220, 0.28);
+  color: #7dd3fc;
+  border-color: rgba(0, 164, 220, 0.25);
 }
 
 .sebitv-lupa-card-action {
@@ -943,45 +1324,44 @@
 
 /* Bloques de Log diferenciados visualmente por severidad */
 .sebitv-log-entry {
-  padding: 9px 12px;
-  margin-bottom: 8px;
-  border-radius: 8px;
-  border-left: 4px solid #54a0ff;
-  background: rgba(255, 255, 255, 0.03);
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  border-radius: var(--sebi-radius);
+  border-left: 3px solid #54a0ff;
+  background: rgba(255, 255, 255, 0.025);
   word-break: break-word;
 }
 
 .sebitv-log-entry.lvl-USER {
   border-left-color: #00d2d3;
-  background: rgba(0, 210, 211, 0.06);
+  background: rgba(0, 210, 211, 0.05);
 }
 
 .sebitv-log-entry.lvl-INFO {
   border-left-color: #54a0ff;
-  background: rgba(84, 160, 255, 0.04);
+  background: rgba(84, 160, 255, 0.035);
 }
 
 .sebitv-log-entry.lvl-SUCCESS {
-  border-left-color: #2ecc71;
-  background: rgba(46, 204, 113, 0.07);
+  border-left-color: #38c172;
+  background: rgba(56, 193, 114, 0.06);
 }
 
 .sebitv-log-entry.lvl-WARNING {
-  border-left-color: #feca57;
-  background: rgba(254, 202, 87, 0.08);
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.07);
 }
 
 .sebitv-log-entry.lvl-ERROR {
-  border-left-color: #ff6b6b;
-  background: rgba(255, 107, 107, 0.12);
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .sebitv-log-badge {
   display: inline-block;
-  font-weight: 800;
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 5px;
+  font-weight: 700;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: var(--sebi-radius-sm);
   margin: 0 6px;
 }
-
