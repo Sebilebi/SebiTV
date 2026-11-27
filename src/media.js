@@ -299,11 +299,14 @@ export async function probeMediaStreams(filePath) {
     'quiet',
     '-print_format',
     'json',
+    '-show_format',
     '-show_streams',
     filePath,
   ]);
   const parsed = JSON.parse(stdout || '{}');
-  return parsed.streams || [];
+  const streams = parsed.streams || [];
+  streams.durationSeconds = Number(parsed?.format?.duration || 0);
+  return streams;
 }
 
 export async function applyMkvTrackDefaults(filePath, evalResult) {

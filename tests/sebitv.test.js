@@ -1275,4 +1275,38 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   const itaEngLang = inspectReleaseLanguages('Arcane.S02.720p.ITA-ENG.MULTI.WEBRip.x265.AAC-V3SP4EV3R');
   assert.equal(itaEngLang.hasMultiSub, false);
   assert.equal(itaEngLang.hasSpanishSub, false);
+
+  // 24. v1.6.14 (Jujutsu Kaisen 0): conservar dígitos sueltos ('0', '2') en matchesTitle, bloquear capítulos TV "- 09" / "2nd Season" en cine y premiar [Judas] Movie
+  const jjk0Pool = [
+    {
+      source: 'nyaa.si',
+      title: '[Erai-raws] Jujutsu Kaisen: Shimetsu Kaiyuu - Zenpen - 09 [1080p CR WEB-DL AVC AAC][MultiSub][DB9CE67A]',
+      seeders: 154,
+      sizeBytes: 1.4e9,
+    },
+    {
+      source: 'nyaa.si',
+      title: '[Erai-raws] Jujutsu Kaisen 2nd Season - 05 [1080p][Multiple Subtitle]',
+      seeders: 90,
+      sizeBytes: 1.3e9,
+    },
+    {
+      source: 'imdb:NyaaSi',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — [Judas] Jujutsu Kaisen - Movie 01 - Jujutsu Kaisen 0 [BD 1080p][HEVC x265 10bit][Dual-Audio][Multi-Subs] (Movie) | 👤 180 💾 1.56 GB ⚙️ NyaaSi | Dubbed / Multi Subs / Dual Audio',
+      seeders: 180,
+      sizeBytes: 1.56 * 1024 ** 3,
+    },
+  ];
+  const jjk0Ranked = scoreAndFilterCandidates(jjk0Pool, {
+    isAnime: true,
+    mediaType: 'movie',
+    acceptedTitles: ['Jujutsu Kaisen 0', 'Gekijou-ban Jujutsu Kaisen 0', 'Jujutsu Kaisen Zero'],
+    year: 2021,
+    allLanguages: false,
+  });
+  assert.equal(jjk0Ranked.length, 1);
+  assert.match(jjk0Ranked[0].title, /\[Judas\].*Movie 01/);
+  assert.ok(jjk0Ranked[0].languageBadges.includes('🇯🇵 Japonés'));
 });

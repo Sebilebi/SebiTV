@@ -234,8 +234,12 @@ export function inspectReleaseLanguages(rawTitle = '') {
 
   const hasEngDubOnly = /\b(eng(?:lish)?[\s._-]*dub(?:[\s._-]*only)?|dubbed[\s._-]*only)\b/i.test(t);
   const hasJapaneseAudio =
-    hasJpFlag ||
-    /\b(japanese|japon[eé]s|\bjpn\b|\bjap\b|erai-raws|subsplease|toonshub)\b/i.test(t);
+    !hasEngDubOnly &&
+    (hasJpFlag ||
+      /\b(japanese|japon[eé]s|\bjpn\b|\bjap\b|erai-raws|subsplease|toonshub|judas|ember|feibanyama|nandesuka|gekijou?[\s-]*ban)\b/i.test(
+        t
+      ) ||
+      (!hasVerifiedCastellano && !hasExplicitLatino && /⚙️\s*nyaasi\b/i.test(t)));
 
   const isKnownEnglishGroup =
     !hasEsFlag &&

@@ -53,7 +53,7 @@ export function matchesTitle(releaseTitle, acceptedTitles = []) {
   }
 
   for (const normTarget of allTargetNorms) {
-    const words = normTarget.split(' ').filter((w) => w.length >= 2 || w === 'z');
+    const words = normTarget.split(' ').filter((w) => w.length >= 2 || w === 'z' || /^\d+$/.test(w));
     if (words.length === 0) continue;
 
     // Si el torrent incluye un marcador de secuela/saga distinta (ej. "daima", "kai", "shippuden") que NO pertenece a la serie buscada -> rechazar
@@ -69,7 +69,7 @@ export function matchesTitle(releaseTitle, acceptedTitles = []) {
 
     if (` ${normRelease} `.includes(` ${normTarget} `)) return true;
 
-    const significantWords = words.filter((w) => w.length >= 3 || w === 'z');
+    const significantWords = words.filter((w) => w.length >= 3 || w === 'z' || /^\d+$/.test(w));
     if (significantWords.length >= 2) {
       const allPresent = significantWords.every((w) => releaseTokens.has(w));
       if (allPresent) return true;
@@ -658,11 +658,18 @@ export function scoreAndFilterCandidates(candidates, context) {
         exactOvaMatch = Boolean(epCheck.exactOvaMatch);
       }
     } else {
-      // En películas: bloquear capítulos o temporadas de series ("S02", "Batch", "Mugen Train Arc", "Hierro 08.mp4") y archivos diminutos
+      // En películas: bloquear capítulos o temporadas de series ("S02", "2nd Season", "- 09 [1080p]", "Batch", "Mugen Train Arc") y archivos diminutos
+      const hasExplicitMovieToken = /\b(movie|pel[ií]cula|film|gekijou?[\s-]*ban|theatrical)\b/i.test(title);
+      const hasStandaloneAnimeEpisodeDash =
+        !hasExplicitMovieToken &&
+        /\s-\s*(?:0[1-9]|[1-9]\d{0,2})(?:v\d)?(?=\s*(?:\[|\(|\b(?:1080p|720p|2160p|cr\b|web|aac|avc|hevc)))/i.test(
+          title
+        );
       if (
-        /\b(s0*[1-9]\d?(?:[\s._-]*e\d{1,3}|\b)|\d{1,2}x\d{1,3}|temporada\s*\d+|cap(?:itulo)?\.?\s*\d{2,4}|\bova\b|season\s*\d+|\bbatch\b|\bcompleta\b|\bmugen\s+train\s+arc\b)\b/i.test(
+        /\b(s0*[1-9]\d?(?:[\s._-]*e\d{1,3}|\b)|\d{1,2}x\d{1,3}|temporada\s*\d+|cap(?:itulo)?\.?\s*\d{2,4}|\bova\b|\boad\b|season\s*\d+|(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|final)\s+season|\bbatch\b|\bcompleta\b|\bmugen\s+train\s+arc\b)\b/i.test(
           title
         ) ||
+        hasStandaloneAnimeEpisodeDash ||
         /\b0[1-9]\.(?:mp4|mkv|avi)\b/i.test(title) ||
         (!isAnime && cand.sizeBytes > 0 && cand.sizeBytes < 350_000_000)
       ) {
@@ -812,6 +819,7 @@ export function scoreAndFilterCandidates(candidates, context) {
         score += 65; // Tamaño ideal 1080p / MicroHD / BluRay Rip rápido y nítido
       }
       if (isAnime && cand.sizeBytes >= 900 * 1024 ** 2 && cand.sizeBytes <= (wants4k ? 12 : 4.5) * 1024 ** 3) score += 40;
+      if (isAnime && /\b(movie|gekijou?[\s-]*ban|theatrical)\b/i.test(title)) score += 55;
       if (isAnime && !wants4k && cand.sizeBytes > 5 * 1024 ** 3 && (cand.seeders || 0) < 15) score -= 45;
     }
 

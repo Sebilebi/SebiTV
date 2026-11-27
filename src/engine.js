@@ -499,11 +499,29 @@ export class SebiEngine {
     }
 
     if (item.is_anime) {
-      const topAnimeTitles = titles.slice(0, 3);
+      const seenNormQueries = new Set();
+      const topAnimeTitles = [];
+      for (const rawT of titles) {
+        const asciiT = rawT
+          .replace(/ō/gi, (m) => (m === 'Ō' ? 'Ou' : 'ou'))
+          .replace(/ū/gi, (m) => (m === 'Ū' ? 'Uu' : 'uu'))
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim();
+        const key = asciiT.toLowerCase();
+        if (key && !seenNormQueries.has(key)) {
+          seenNormQueries.add(key);
+          topAnimeTitles.push(asciiT);
+        }
+        if (topAnimeTitles.length >= 3) break;
+      }
       const esTitle = cleanSearchQueryTitle(item.title);
       for (const t of topAnimeTitles) {
         tasks.push(this.indexers.searchNyaa(t));
         tasks.push(this.indexers.searchNyaaNonEnglish(t));
+      }
+      if (topAnimeTitles[0]) {
+        tasks.push(this.indexers.searchKnaben(topAnimeTitles[0]));
       }
       tasks.push(this.indexers.searchKnaben(`${esTitle} Castellano`));
       tasks.push(this.indexers.searchExt({ query: `${topAnimeTitles[0]} MultiSub`, category: 7 }));
@@ -527,7 +545,9 @@ export class SebiEngine {
       if (origTitle !== esTitle) {
         tasks.push(this.indexers.searchExt({ query: `${origTitle} Castellano`, category: 1 }));
         tasks.push(this.indexers.searchKnaben(`${origTitle} Castellano`));
-        if (allLanguages) tasks.push(this.indexers.searchKnaben(`${origTitle} ${item.year || ''}`.trim()));
+      }
+      if (allLanguages) {
+        tasks.push(this.indexers.searchKnaben(`${origTitle} ${item.year || ''}`.trim()));
       }
       tasks.push(this.indexers.searchKnaben(`${esTitle} ${item.year || ''} Castellano`.trim()));
       tasks.push(this.indexers.searchKnaben(`${esTitle} Castellano`));
@@ -1464,6 +1484,15 @@ export class SebiEngine {
       streams = await probeMediaStreams(srcPath);
       if (!streams || !streams.some((s) => s.codec_type === 'video')) {
         throw new Error('El contenedor de vídeo no tiene pista de vídeo legible (cabecera incompleta).');
+      }
+      if (
+        !movie.manual_override &&
+        Number(streams.durationSeconds) > 0 &&
+        Number(streams.durationSeconds) < 2100
+      ) {
+        throw new Error(
+          `Archivo descartado por tener duración de episodio TV (${Math.round(streams.durationSeconds / 60)} min < 35 min).`
+        );
       }
     } catch (probeErr) {
       if (probeErr?.code !== 'ENOENT') {
