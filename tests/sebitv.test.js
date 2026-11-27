@@ -1202,4 +1202,25 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   const resMap = Object.fromEntries(mandoRes.map((c) => [c.source, c.resolution]));
   assert.equal(resMap['imdb:Wolfmax4k'], '4K');
   assert.equal(resMap['imdb:ThePirateBay'], '1080p');
+
+  // 21. v1.6.11 (Hallazgo Interstellar): un encode "1080p.UHD.BluRay" (reescalado desde master UHD) es 1080p, no 4K
+  const uhdDownscale = scoreAndFilterCandidates(
+    [
+      {
+        source: 'imdb:TorrentGalaxy',
+        matchedExactImdbEpisode: true,
+        title: 'Interstellar.2014.PROPER.IMAX.1080p.UHD.BluRay.x265.HDR.DV.DD+5.1',
+        seeders: 120,
+        sizeBytes: 4.2e9,
+      },
+    ],
+    {
+      isAnime: false,
+      mediaType: 'movie',
+      acceptedTitles: ['Interstellar'],
+      year: 2014,
+      allLanguages: true,
+    }
+  );
+  assert.equal(uhdDownscale[0].resolution, '1080p');
 });

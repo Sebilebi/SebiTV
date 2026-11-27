@@ -1077,7 +1077,7 @@
           `;
         } else {
           listEl.innerHTML = sorted
-            .slice(0, 50)
+            .slice(0, 80)
             .map((c, idx) => {
               const origIdx = candidates.indexOf(c);
               const { displayTitle, subFileTitle } = cleanCandidateLabels(c);

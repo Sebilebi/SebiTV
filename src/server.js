@@ -425,7 +425,7 @@ export function createSebiApp() {
         const allLanguages = url.searchParams.get('allLanguages') === '1';
         const item = db.getCatalogItemById(ep.item_id);
         const candidates = await engine.searchEpisodeCandidates(item, ep, { allLanguages });
-        sendJson(res, 200, { candidates: candidates.slice(0, 40) });
+        sendJson(res, 200, { candidates: candidates.slice(0, 120) });
         return;
       }
 
@@ -435,7 +435,7 @@ export function createSebiApp() {
         const rich = await engine.ensureRegistered('movie', Number(movCandMatch[1]));
         const item = db.getCatalogItemById(rich.id);
         const candidates = await engine.searchMovieCandidates(item, { allLanguages });
-        sendJson(res, 200, { candidates: candidates.slice(0, 40) });
+        sendJson(res, 200, { candidates: candidates.slice(0, 120) });
         return;
       }
 

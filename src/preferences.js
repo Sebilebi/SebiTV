@@ -268,7 +268,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
   else if (hasEnglishSub) badges.push('💬 Sub Inglés');
 
   let resolution = 'SD';
-  if (/\b(2160[pi]?|3840x2160|uhd)\b|\b4k(?:web-?rip|web-?dl|microhd|hdr\w*|uhd|bdremux|remux|\b)/i.test(t)) {
+  if (/\b(2160[pi]?|3840x2160)\b|\b4k(?:web-?rip|web-?dl|microhd|hdr\w*|uhd|bdremux|remux|\b)/i.test(t)) {
     resolution = '4K';
   } else if (
     /\b(1080[pi]|1920x1080|fhd)\b|(?:x26[45]|h\.?26[45]|hevc|avc|bluray|bdrip|bd|web-?dl|webrip|\[)[\s._-]*1080(?:\]|\b)/i.test(
@@ -282,6 +282,8 @@ export function inspectReleaseLanguages(rawTitle = '') {
     )
   ) {
     resolution = '720p';
+  } else if (/\buhd\b/i.test(t)) {
+    resolution = '4K';
   }
 
   const codecTags = [];
