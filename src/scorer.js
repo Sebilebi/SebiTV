@@ -80,13 +80,18 @@ export function matchesTitle(releaseTitle, acceptedTitles = []) {
 
 function numberInRangePattern(releaseTitle, targetNum) {
   // Detecta rangos tipo "01-50", "001-291", "01_50", "Cap.101_113", "S01E01-S01E13"
+  // Ignorar prefijos "Season 3 - 10" / "Part 2 - 08" para no confundir "Temporada - Episodio" con un rango 3..10
+  const cleaned = String(releaseTitle || '').replace(
+    /\b(?:season|temporada|part|parte|cour|box|vol(?:ume)?)\s*0*\d{1,2}(?=\s*[-_~])/gi,
+    ' '
+  );
   const rangeRegexes = [
     /\b0*(\d{1,4})\s*[-_~]\s*0*(\d{1,4})\b/g,
     /\bcap\.?\s*\d(\d{2})\s*[-_]\s*\d(\d{2})\b/gi,
   ];
   for (const re of rangeRegexes) {
     let m;
-    while ((m = re.exec(releaseTitle)) !== null) {
+    while ((m = re.exec(cleaned)) !== null) {
       const start = Number(m[1]);
       const end = Number(m[2]);
       if (Number.isFinite(start) && Number.isFinite(end) && end > start && end - start <= 500) {
@@ -401,6 +406,7 @@ export function classifyEpisodeMatch(
       candidates.add(absNumber);
     }
 
+    const titleWithoutCrc = releaseTitle.replace(/\[[0-9a-f]{8}\]/gi, ' ');
     for (const num of candidates) {
       const n2 = pad2(num);
       const n3 = String(num).padStart(3, '0');
@@ -408,10 +414,10 @@ export function classifyEpisodeMatch(
         `(?:\\s-\\s*|\\[|\\bep(?:isode)?[\\s._-]*|\\s)(?:0*${num}|${n2}|${n3})(?:v\\d)?(?:\\s|\\]|\\[|\\(|\\.|$)`,
         'i'
       );
-      if (animeEpRe.test(releaseTitle) && !/\b\d{4}\b/.test(String(num))) {
+      if (animeEpRe.test(titleWithoutCrc) && !/\b\d{4}\b/.test(String(num))) {
         return { matched: true, isPack: isExplicitMultiEpPack };
       }
-      if (numberInRangePattern(releaseTitle, num)) {
+      if (numberInRangePattern(titleWithoutCrc, num)) {
         return { matched: true, isPack: true };
       }
     }
@@ -423,7 +429,10 @@ export function classifyEpisodeMatch(
     new RegExp(`\\b(s${s2}|season\\s*0*${seasonNumber}|temporada\\s*0*${seasonNumber}|box\\s*0*${seasonNumber})\\b`, 'i'),
     /\b(complete|completa|batch|integrale|full\s*season)\b/i,
   ];
-  const hasOtherEpisodeTag = /\bs\d{1,2}e\d{1,3}\b|\b\d{1,2}x\d{1,3}\b/i.test(releaseTitle);
+  const hasOtherEpisodeTag =
+    /\bs\d{1,2}e\d{1,3}\b|\b\d{1,2}x\d{1,3}\b|\s-\s*\d{1,3}(?:v\d)?(?=\s|\[|\(|\.)|\bep(?:isode)?[\s._-]*\d{1,3}\b/i.test(
+      releaseTitle
+    );
   const isMultiSeasonCompletePack = /\bs0*1\s*[-~]\s*s?0*[2-9]\b|\bcomplete\s+series\b|\bserie\s+completa\b/i.test(
     releaseTitle
   );

@@ -38,13 +38,23 @@ const isLatinoLabel = (t, l) =>
 const isCastellanoLabel = (t, l) =>
   l === 'es-es' || /\b(castellano|castilian|espa[ñn]a|spain|european|es-es|esp\b)/i.test(t);
 
-function findAudioStreamForCode(audioStreams, code) {
+function findAudioStreamForCode(audioStreams, code, { isAnime = false, totalSubTracks = 0 } = {}) {
   if (!code || code === 'none') return -1;
   if (code === 'any') return audioStreams.length > 0 ? 0 : -1;
   if (code === 'ja') {
-    return audioStreams.findIndex(
+    const explicitJa = audioStreams.findIndex(
       (s) => isJapaneseLang(langTag(s)) || /\b(japanese|japon[eé]s|jpn)\b/i.test(titleTag(s))
     );
+    if (explicitJa >= 0) return explicitJa;
+    // En releases de anime subtitulado (ej. Erai-raws) con 1 sola pista de audio sin código ISO ('und'/'') y subtítulos presentes, el audio es Japonés original
+    if (isAnime && audioStreams.length === 1 && totalSubTracks > 0) {
+      const l = langTag(audioStreams[0]);
+      const t = titleTag(audioStreams[0]);
+      if ((!l || l === 'und' || l === 'unk') && !isSpanishLang(l) && !isCastellanoLabel(t, l) && !isLatinoLabel(t, l) && !/\b(english|french|german|italian)\b/i.test(t)) {
+        return 0;
+      }
+    }
+    return -1;
   }
   if (code === 'es-ES') {
     const idx = audioStreams.findIndex((s) => {
@@ -54,7 +64,9 @@ function findAudioStreamForCode(audioStreams, code) {
       return isSpanishLang(l) || isCastellanoLabel(t, l);
     });
     if (idx >= 0) return idx;
-    // Rips españoles (simples o Dual Castellano+Inglés en MejorTorrent/Wolfmax) donde la pista Castellano viene como 'und'/vacía
+    // Rips españoles (simples o Dual Castellano+Inglés en MejorTorrent/Wolfmax) donde la pista Castellano viene como 'und'/vacía.
+    // En anime con subtítulos embebidos NUNCA asumir que una única pista 'und' es Castellano (es Japonés original).
+    if (isAnime && totalSubTracks > 0) return -1;
     const untaggedIdx = audioStreams.findIndex((s) => {
       const l = langTag(s);
       const t = titleTag(s);
@@ -164,7 +176,7 @@ export function evaluateMediaStreams(
   let matchedAudioCode = null;
 
   for (const code of audioTiers) {
-    const idx = findAudioStreamForCode(audioStreams, code);
+    const idx = findAudioStreamForCode(audioStreams, code, { isAnime, totalSubTracks: subStreams.length });
     if (idx >= 0) {
       chosenAudioPos = idx;
       matchedAudioCode = code;
@@ -253,7 +265,10 @@ export function evaluateMediaStreams(
   }
 
   // 4. Si no hay subtítulos requeridos, pero el vídeo ya tiene Audio Español Castellano y el perfil lo permite (ej. Doraemon doblado)
-  const castAudioPos = findAudioStreamForCode(audioStreams, 'es-ES');
+  const castAudioPos = findAudioStreamForCode(audioStreams, 'es-ES', {
+    isAnime,
+    totalSubTracks: subStreams.length,
+  });
   if (profile.allowSpanishAudioWithoutSubs && (matchedAudioCode === 'es-ES' || castAudioPos >= 0)) {
     return {
       valid: true,

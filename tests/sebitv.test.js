@@ -189,6 +189,17 @@ test('Validador ffprobe (evaluateMediaStreams) prioriza Castellano > Latino en A
   assert.equal(untaggedSubEval.valid, true);
   assert.equal(untaggedSubEval.preferredSubTrackNumber, 2);
   assert.equal(untaggedSubEval.repairSubLang, 'spa');
+
+  // 8. v1.6.12 (Spy x Family Erai-raws): anime con 1 pista de audio sin código ISO ('') y subtítulos múltiples -> repara audio como 'jpn', NUNCA como 'spa'
+  const untaggedAudAnime = [
+    { codec_type: 'video' },
+    { codec_type: 'audio', tags: { language: '', title: '' } },
+    { codec_type: 'subtitle', tags: { language: 'spa', title: 'Spanish' } },
+    { codec_type: 'subtitle', tags: { language: 'eng', title: 'English' } },
+  ];
+  const untaggedAudEval = evaluateMediaStreams(untaggedAudAnime, { isAnime: true });
+  assert.equal(untaggedAudEval.valid, true);
+  assert.equal(untaggedAudEval.repairAudioLang, 'jpn');
 });
 
 test('Ventana deslizante [N-1, N, N+1]: en el Cap 5 pre-descarga el 6, conserva el 4 y desinstala 1, 2 y 3 (respetando fijados)', () => {
@@ -1223,4 +1234,33 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
     }
   );
   assert.equal(uhdDownscale[0].resolution, '1080p');
+
+  // 22. v1.6.12 (Spy x Family S03E04): "[Erai-raws] Spy x Family Season 3 - 10 [41837A15]" NO debe colarse como Pack de Temporada 3 al pedir S03E04 (abs 41)
+  const sxfPool = [
+    {
+      source: 'nyaa.si',
+      title: '[Erai-raws] Spy x Family Season 3 - 10 [1080p][Multiple Subtitle][41837A15].mkv',
+      seeders: 35,
+      sizeBytes: 1.3e9,
+    },
+    {
+      source: 'imdb:NyaaSi',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 4k — [Feibanyama] SPY x FAMILY S3 [2160p AV1 Multi-Subs] | S03E04.mkv | 👤 12 💾 552 MB ⚙️ NyaaSi | Multi Subs',
+      seeders: 12,
+      sizeBytes: 552e6,
+    },
+  ];
+  const sxfRanked = scoreAndFilterCandidates(sxfPool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['Spy x Family', 'SPY×FAMILY'],
+    seasonNumber: 3,
+    episodeNumber: 4,
+    absNumber: 41,
+    totalRegularSeasons: 3,
+    allLanguages: true,
+  });
+  assert.equal(sxfRanked.length, 1);
+  assert.match(sxfRanked[0].title, /Feibanyama/);
 });

@@ -454,7 +454,7 @@ export class CatalogService {
             const epDesc = String(ep.overview || '');
             if (ep.air_date && ep.air_date > todayIso) return false;
             if (
-              /\b(making[\s-]*of|behind\s+the|inside\s+the\s+episode|featurette|cast\s+interview|trailer|teaser|promo\b|preview\b)/i.test(
+              /\b(making[\s-]*of|behind\s+the|inside\s+the\s+episode|featurette|cast\s+interview|trailer|teaser|promo\b|preview\b|manner\s+movie|campaign)\b/i.test(
                 `${epName} ${epDesc}`
               )
             ) {
