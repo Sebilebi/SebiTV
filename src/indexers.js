@@ -44,9 +44,14 @@ export function extractInfoHashFromMagnet(magnet = '') {
 const DEFAULT_PUBLIC_TRACKERS = [
   'udp://tracker.opentrackr.org:1337/announce',
   'udp://open.stealth.si:80/announce',
+  'udp://open.demonii.com:1337/announce',
   'udp://exodus.desync.com:6969/announce',
+  'udp://explodie.org:6969/announce',
   'udp://tracker.torrent.eu.org:451/announce',
+  'udp://tracker.openbittorrent.com:6969/announce',
+  'udp://opentracker.io:6969/announce',
   'http://nyaa.tracker.wf:7777/announce',
+  'http://tracker.bt4g.com:2095/announce',
 ];
 
 export function buildMagnetFromHash(infoHash, dn = '', extraTrackers = []) {

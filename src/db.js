@@ -43,6 +43,7 @@ export class SebiDatabase {
         progress REAL NOT NULL DEFAULT 0,
         download_speed INTEGER NOT NULL DEFAULT 0,
         torrent_hash TEXT,
+        torrent_file_index INTEGER,
         rejected_hashes_json TEXT NOT NULL DEFAULT '[]',
         file_path TEXT,
         watched_at TEXT,
@@ -115,6 +116,7 @@ export class SebiDatabase {
       "ALTER TABLE catalog_items ADD COLUMN rejected_hashes_json TEXT NOT NULL DEFAULT '[]'",
       "ALTER TABLE catalog_items ADD COLUMN related_movies_json TEXT NOT NULL DEFAULT '[]'",
       'ALTER TABLE catalog_items ADD COLUMN catalog_schema_ver INTEGER NOT NULL DEFAULT 1',
+      'ALTER TABLE catalog_items ADD COLUMN torrent_file_index INTEGER',
     ]) {
       try {
         this.db.exec(sql);
@@ -276,6 +278,7 @@ export class SebiDatabase {
       progress: 'progress',
       downloadSpeed: 'download_speed',
       torrentHash: 'torrent_hash',
+      torrentFileIndex: 'torrent_file_index',
       filePath: 'file_path',
       jellyfinId: 'jellyfin_id',
       pinned: 'pinned',

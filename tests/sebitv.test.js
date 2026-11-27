@@ -165,6 +165,16 @@ test('Validador ffprobe (evaluateMediaStreams) prioriza Castellano > Latino en A
     { codec_type: 'audio', tags: { language: 'spa', title: 'Español Latino' } },
   ];
   assert.equal(evaluateMediaStreams(movieLatinoOnly, { isAnime: false }).valid, false);
+
+  // 6. Rip español Dual (MejorTorrent/Wolfmax) donde la pista Castellano viene como 'und' junto a 'eng' -> aceptada como pista 1
+  const spanishUntaggedDual = [
+    { codec_type: 'video' },
+    { codec_type: 'audio', tags: { language: 'und', title: 'AC3 5.1' } },
+    { codec_type: 'audio', tags: { language: 'eng', title: 'English' } },
+  ];
+  const untaggedEval = evaluateMediaStreams(spanishUntaggedDual, { isAnime: false });
+  assert.equal(untaggedEval.valid, true);
+  assert.equal(untaggedEval.preferredAudioTrackNumber, 1);
 });
 
 test('Ventana deslizante [N-1, N, N+1]: en el Cap 5 pre-descarga el 6, conserva el 4 y desinstala 1, 2 y 3 (respetando fijados)', () => {

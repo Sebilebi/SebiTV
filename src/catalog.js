@@ -153,7 +153,7 @@ export class CatalogService {
     }
 
     const todayIso = new Date().toISOString().slice(0, 10);
-    const digitalMovieCutoffIso = new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 10);
+    const digitalMovieCutoffIso = new Date(Date.now() - 45 * 86400_000).toISOString().slice(0, 10);
     const settled = await Promise.allSettled([
       this.#tmdbFetch('/trending/all/week', { language: 'es-ES' }),
       this.#tmdbFetch('/discover/movie', {
@@ -162,7 +162,7 @@ export class CatalogService {
         sort_by: 'popularity.desc',
         with_release_type: '4|5|6', // Solo Digital, BluRay/Físico o TV
         'primary_release_date.lte': digitalMovieCutoffIso,
-        'vote_count.gte': '40',
+        'vote_count.gte': '280',
         include_adult: 'false',
         page: 1,
       }),
@@ -170,7 +170,7 @@ export class CatalogService {
         language: 'es-ES',
         sort_by: 'popularity.desc',
         'first_air_date.lte': todayIso,
-        'vote_count.gte': '30',
+        'vote_count.gte': '90',
         without_genres: '16',
         page: 1,
       }),
@@ -178,7 +178,7 @@ export class CatalogService {
         language: 'es-ES',
         sort_by: 'popularity.desc',
         'first_air_date.lte': todayIso,
-        'vote_count.gte': '15',
+        'vote_count.gte': '25',
         with_genres: '16',
         with_original_language: 'ja',
         page: 1,
@@ -193,7 +193,7 @@ export class CatalogService {
       if (mType === 'movie' && d > digitalMovieCutoffIso) return false;
       if (mType !== 'movie' && d > todayIso) return false;
       const isAnim = (r.genre_ids || []).includes(16) && r.original_language === 'ja';
-      const minVotes = mType === 'movie' ? (isAnim ? 15 : 40) : isAnim ? 12 : 25;
+      const minVotes = mType === 'movie' ? (isAnim ? 40 : 280) : isAnim ? 20 : 90;
       return (r.vote_count || 0) >= minVotes;
     };
     const trendingAll = val(0);

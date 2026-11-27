@@ -133,6 +133,12 @@ export function createSebiApp() {
 
         if (mediaType === 'movie') {
           let movJfId = item.jellyfin_id || null;
+          if (movJfId) {
+            const verifyMov = await jellyfin.getItemDetails(movJfId);
+            if (!verifyMov || verifyMov.LocationType === 'Virtual') {
+              movJfId = null;
+            }
+          }
           if (!movJfId && item.file_path) {
             const byPath = await jellyfin.findPlayableItemByPath(item.file_path, { maxWaitMs: 12000 });
             if (byPath?.Id) {
@@ -153,6 +159,12 @@ export function createSebiApp() {
 
         const ep = db.getEpisodeById(Number(episodeId));
         let epJfId = ep?.jellyfin_episode_id || null;
+        if (epJfId) {
+          const verifyEp = await jellyfin.getItemDetails(epJfId);
+          if (!verifyEp || verifyEp.LocationType === 'Virtual' || !(verifyEp.MediaSources?.length > 0)) {
+            epJfId = null;
+          }
+        }
 
         // Primero buscar por la ruta exacta del archivo descargado en disco (/data/media/.../S04E220.mkv)
         if (!epJfId && ep?.file_path) {

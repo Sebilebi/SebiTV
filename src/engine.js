@@ -883,6 +883,7 @@ export class SebiEngine {
           status: 'downloading',
           statusMessage: `Descargando (${cand.source})`,
           torrentHash: hash,
+          torrentFileIndex: movieFile.index,
           manualOverride: Boolean(manualCandidate),
           progress: Math.round((movieFile.progress || 0) * 100),
         });
@@ -945,7 +946,7 @@ export class SebiEngine {
 
       const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
       const stallKey = `ep:${ep.id}:${ep.torrent_hash}`;
-      const isEffectivelyStalled = !isSeedingState && rawProg < 0.998 && (tor.dlspeed || 0) < 25 * 1024;
+      const isEffectivelyStalled = !isSeedingState && rawProg < 0.998 && (tor.dlspeed || 0) < 85 * 1024;
       if (isEffectivelyStalled) {
         if (!this.stalledTracker.has(stallKey)) this.stalledTracker.set(stallKey, Date.now());
       } else {
@@ -1007,14 +1008,17 @@ export class SebiEngine {
       } catch {
         continue;
       }
-      const movieFile = selectMovieFileFromTorrent(files);
+      const movieFile =
+        (Number.isInteger(movie.torrent_file_index)
+          ? files.find((f) => f.index === movie.torrent_file_index)
+          : null) || selectMovieFileFromTorrent(files);
       if (!movieFile) continue;
 
       const rawProg = movieFile.progress || 0;
       const pct = rawProg >= 1 ? 100 : Math.min(99.9, Math.floor(rawProg * 1000) / 10);
       const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
       const stallKey = `mov:${movie.id}:${movie.torrent_hash}`;
-      const isEffectivelyStalled = !isSeedingState && rawProg < 0.998 && (tor.dlspeed || 0) < 25 * 1024;
+      const isEffectivelyStalled = !isSeedingState && rawProg < 0.998 && (tor.dlspeed || 0) < 85 * 1024;
       if (isEffectivelyStalled) {
         if (!this.stalledTracker.has(stallKey)) this.stalledTracker.set(stallKey, Date.now());
       } else {
@@ -1214,6 +1218,7 @@ export class SebiEngine {
       progress: 100,
       downloadSpeed: 0,
       filePath: destPath,
+      jellyfinEpisodeId: null,
     });
 
     logger.success('ENGINE', 'episode.available', `Capítulo listo para reproducir: ${destPath}`, {
@@ -1395,6 +1400,7 @@ export class SebiEngine {
       downloadSpeed: 0,
       torrentHash: ep.torrent_is_pack ? oldHash : null,
       filePath: null,
+      jellyfinEpisodeId: null,
     });
 
     if (oldHash) {
@@ -1452,6 +1458,7 @@ export class SebiEngine {
       progress: 0,
       downloadSpeed: 0,
       torrentHash: null,
+      torrentFileIndex: null,
       filePath: null,
       jellyfinId: null,
     });

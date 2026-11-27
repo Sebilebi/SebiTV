@@ -54,15 +54,22 @@ function findAudioStreamForCode(audioStreams, code) {
       return isSpanishLang(l) || isCastellanoLabel(t, l);
     });
     if (idx >= 0) return idx;
-    // Rips españoles de 1 sola pista sin etiqueta de idioma
+    // Rips españoles (simples o Dual Castellano+Inglés en MejorTorrent/Wolfmax) donde la pista Castellano viene como 'und'/vacía
+    const untaggedIdx = audioStreams.findIndex((s) => {
+      const l = langTag(s);
+      const t = titleTag(s);
+      if (l && l !== 'und' && l !== 'unk') return false;
+      if (isLatinoLabel(t, l)) return false;
+      if (/\b(english|ingl[eé]s|japanese|japon[eé]s|french|german|italian|russian|commentary)\b/i.test(t)) {
+        return false;
+      }
+      return true;
+    });
     if (
-      audioStreams.length === 1 &&
-      !['eng', 'en', 'jpn', 'ja', 'fre', 'fra', 'ger', 'deu', 'ita', 'por', 'rus'].includes(
-        langTag(audioStreams[0])
-      ) &&
-      !isLatinoLabel(titleTag(audioStreams[0]), langTag(audioStreams[0]))
+      untaggedIdx >= 0 &&
+      (audioStreams.length === 1 || audioStreams.some((s, i) => i !== untaggedIdx && isEnglishLang(langTag(s))))
     ) {
-      return 0;
+      return untaggedIdx;
     }
     return -1;
   }
