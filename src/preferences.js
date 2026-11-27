@@ -166,7 +166,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
   const hasExplicitLatino =
     !isMultiSubWithoutMultiAudio &&
     (hasMxFlag ||
-      /\b(latino|latam|es-la|es-419|spa-la|dual[\s._-]*lat|audio[\s._-]*latino|cinecalidad|pelisenhd|hackstore|megapeliculas\w*|somosmovies|yaske|dual[\s._-]*yg)\b/i.test(
+      /\b(latino|latam|es-la|es-419|spa-la|dual[\s._-]*lat|audio[\s._-]*latino|cinecalidad|pelisenhd|hackstore|megapeliculas\w*|somosmovies|yaske|dual[\s._-]*yg|dem3nt3|dmnt)\b/i.test(
         t
       ) ||
       /\.yg(?:\b|⭐|\s|$)/i.test(t));

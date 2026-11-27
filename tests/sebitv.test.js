@@ -1104,4 +1104,31 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.ok(pickedMini);
   assert.equal(pickedMini.index, 12);
+
+  // 17. v1.6.7 (Hallazgo Separación / Severance): los releases "DUAL SPA-ENG" de dem3nt3 / DMnT en 1337x son Español Latino y no deben superar a MejorTorrent/Wolfmax Castellano
+  const sevPool = [
+    {
+      source: 'imdb:1337x',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 4k — Severance S01 2160p ATVP WEB-DL DDP5.1 Atmos DV HDR10+ Dual-Audio SPA-ENG-dem3nt3 | S01E04.mkv | 👤 24 💾 8.21 GB ⚙️ 1337x | Dual Audio / 🇬🇧 / 🇪🇸',
+      seeders: 24,
+      sizeBytes: 8.21e9,
+    },
+    {
+      source: 'imdb:Wolfmax4k',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Separacion [1080p][Cap.104][Castellano] | 👤 5 💾 3.8 GB ⚙️ Wolfmax4k | 🇪🇸',
+      seeders: 5,
+      sizeBytes: 3.8e9,
+    },
+  ];
+  const sevRanked = scoreAndFilterCandidates(sevPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['Separación', 'Severance'],
+    seasonNumber: 1,
+    episodeNumber: 4,
+  });
+  assert.equal(sevRanked.length, 1);
+  assert.match(sevRanked[0].source, /Wolfmax4k/);
 });
