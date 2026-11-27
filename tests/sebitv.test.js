@@ -570,4 +570,68 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(gotCheck.length, 1);
   assert.match(gotCheck[0].title, /Juego de Tronos/);
+
+  // 8. v1.5.2: Película "Tren infinito" bloquea packs S02/Batch/Mugen Train Arc y prioriza 23 seeds (2.66 GB) sobre 7 seeds (5.31 GB);
+  //    y en series comerciales prioriza 720p con 24 seeds sobre 4K pesado con 1 seed
+  const mugenMoviePool = [
+    {
+      source: 'nyaa.si',
+      title: 'Demon Slayer Kimetsu no Yaiba S02 MULTi 1080p WEB x264 AAC (Multi-Subs, Mugen Train Arc)',
+      seeders: 46,
+      sizeBytes: 4e9,
+    },
+    {
+      source: 'nyaa.si',
+      title: '[Judas] Kimetsu no Yaiba - Mugen Ressha-hen (Demon Slayer - Mugen Train Arc) [1080p][Multi-Subs] (Batch)',
+      seeders: 32,
+      sizeBytes: 3.5e9,
+    },
+    {
+      source: 'imdb:NyaaSi',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — [Erai-raws] Kimetsu no Yaiba - Mugen Ressha Hen - Movie [BD][1080p][Multiple Subtitle] | 👤 7 💾 5.31 GB ⚙️ NyaaSi | Multi Subs',
+      seeders: 7,
+      sizeBytes: 5.31e9,
+    },
+    {
+      source: 'imdb:NyaaSi',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — [Judas] Kimetsu no Yaiba (Demon Slayer) - Movie 01 - Mugen Train [1080p][Dual-Audio][Multi-Subs] (Movie) | 👤 23 💾 2.66 GB ⚙️ NyaaSi | Multi Subs',
+      seeders: 23,
+      sizeBytes: 2.66e9,
+    },
+  ];
+  const mugenRanked = scoreAndFilterCandidates(mugenMoviePool, {
+    isAnime: true,
+    mediaType: 'movie',
+    acceptedTitles: ['Guardianes de la Noche: Tren infinito', 'Kimetsu no Yaiba: Mugen Ressha-hen', 'Demon Slayer Mugen Train'],
+    year: 2020,
+  });
+  assert.equal(mugenRanked.length, 2); // S02 y Batch quedan descartados
+  assert.match(mugenRanked[0].title, /\[Judas\].*Movie 01/); // 23 seeds 2.66 GB gana al de 7 seeds 5.31 GB
+
+  const slowHorsesPool = [
+    {
+      source: 'imdb:Wolfmax4k',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 4k — Slow horses [4k 2160p][Cap.303] | 👤 1 💾 7.82 GB ⚙️ Wolfmax4k | 🇪🇸',
+      seeders: 1,
+      sizeBytes: 7.82e9,
+    },
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 720p — Slow Horses [HDTV 720p][Cap.303] | 👤 24 💾 1.29 GB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 24,
+      sizeBytes: 1.29e9,
+    },
+  ];
+  const shRanked = scoreAndFilterCandidates(slowHorsesPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['Slow Horses'],
+    seasonNumber: 3,
+    episodeNumber: 3,
+  });
+  assert.match(shRanked[0].title, /720p/);
 });

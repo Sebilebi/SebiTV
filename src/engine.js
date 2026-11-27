@@ -941,7 +941,8 @@ export class SebiEngine {
 
       const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
       const stallKey = `ep:${ep.id}:${ep.torrent_hash}`;
-      if (tor.state === 'stalledDL' && (tor.dlspeed || 0) === 0) {
+      const isEffectivelyStalled = !isSeedingState && rawProg < 0.998 && (tor.dlspeed || 0) < 25 * 1024;
+      if (isEffectivelyStalled) {
         if (!this.stalledTracker.has(stallKey)) this.stalledTracker.set(stallKey, Date.now());
       } else {
         this.stalledTracker.delete(stallKey);
@@ -952,7 +953,7 @@ export class SebiEngine {
 
       // Caso real en packs españoles (pctnew/wolfmax): pieza frontera de 4 MB compartida con un .txt no semillado (99.89%)
       const readyNearComplete =
-        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && stalledElapsedMs >= 20000);
+        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && (tor.dlspeed || 0) === 0);
 
       if (rawProg >= 1 || readyNearComplete) {
         this.stalledTracker.delete(stallKey);
@@ -960,8 +961,8 @@ export class SebiEngine {
         continue;
       }
 
-      // Si lleva >= 35s al 0% con 0 semillas conectadas (o >= 75s estancado a mitad), saltar al siguiente candidato
-      const stallThresholdMs = rawProg === 0 && (tor.num_seeds || 0) === 0 ? 35000 : 75000;
+      // Si lleva >= 35s al <1% (<25 KB/s, incluso con 1 KB/s de ruido DHT) o >= 55s arrastrándose <25 KB/s, saltar al siguiente candidato
+      const stallThresholdMs = rawProg < 0.01 ? 35000 : 55000;
       if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
         this.stalledTracker.delete(stallKey);
         logger.warn('QBIT', 'torrent.stalled_switch', `Torrent estancado (${pct}% sin semillas activas). Cambiando al siguiente candidato...`, {
@@ -1009,7 +1010,8 @@ export class SebiEngine {
       const pct = rawProg >= 1 ? 100 : Math.min(99.9, Math.floor(rawProg * 1000) / 10);
       const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
       const stallKey = `mov:${movie.id}:${movie.torrent_hash}`;
-      if (tor.state === 'stalledDL' && (tor.dlspeed || 0) === 0) {
+      const isEffectivelyStalled = !isSeedingState && rawProg < 0.998 && (tor.dlspeed || 0) < 25 * 1024;
+      if (isEffectivelyStalled) {
         if (!this.stalledTracker.has(stallKey)) this.stalledTracker.set(stallKey, Date.now());
       } else {
         this.stalledTracker.delete(stallKey);
@@ -1019,7 +1021,7 @@ export class SebiEngine {
         : 0;
 
       const readyNearComplete =
-        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && stalledElapsedMs >= 20000);
+        (isSeedingState && rawProg >= 0.998) || (rawProg >= 0.998 && (tor.dlspeed || 0) === 0);
 
       if (rawProg >= 1 || readyNearComplete) {
         this.stalledTracker.delete(stallKey);
@@ -1027,7 +1029,7 @@ export class SebiEngine {
         continue;
       }
 
-      const stallThresholdMs = rawProg === 0 && (tor.num_seeds || 0) === 0 ? 35000 : 75000;
+      const stallThresholdMs = rawProg < 0.01 ? 35000 : 55000;
       if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
         this.stalledTracker.delete(stallKey);
         logger.warn('QBIT', 'movie.stalled_switch', `Película estancada (${pct}% sin semillas activas). Cambiando al siguiente candidato...`, {

@@ -156,7 +156,7 @@ export function parseNyaaRssXml(xml = '') {
 }
 
 const TORRENTIO_PROVIDERS =
-  'providers=yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,nyaasi,tokyotosho,anidex,mejortorrent,wolfmax4k,cinecalidad';
+  'providers=yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,nyaasi,tokyotosho,mejortorrent,wolfmax4k,cinecalidad';
 
 /**
  * Parsea la respuesta JSON de Torrentio (indexada exactamente por imdb_id y capítulo,

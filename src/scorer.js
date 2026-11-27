@@ -260,11 +260,11 @@ export function classifyEpisodeMatch(
   return { matched: false, isPack: false };
 }
 
-function resolutionScore(title = '') {
+function resolutionScore(title = '', seeders = 1) {
   if (/\b(1080p|1920x1080|fhd)\b/i.test(title)) return 120;
-  if (/\b(2160p|4k|uhd)\b/i.test(title)) return 85;
-  if (/\b(720p|1280x720|hdrip|microhd|bdrip|bluray|web-dl|webrip)\b/i.test(title)) return 75;
-  return 20;
+  if (/\b(720p|1280x720|hdrip|microhd|bdrip|bluray|web-dl|webrip)\b/i.test(title)) return 85;
+  if (/\b(2160p|4k|uhd)\b/i.test(title)) return seeders <= 3 ? 35 : 80;
+  return 25;
 }
 
 function matchAudioPreferenceTier(langInfo, prefCode) {
@@ -392,9 +392,9 @@ export function scoreAndFilterCandidates(candidates, context) {
         isPack = epCheck.isPack;
       }
     } else {
-      // En películas: bloquear capítulos de series ("Hierro 08.mp4", "S01E01", "Cap.101") y archivos diminutos
+      // En películas: bloquear capítulos o temporadas de series ("S02", "Batch", "Mugen Train Arc", "Hierro 08.mp4") y archivos diminutos
       if (
-        /\b(s\d{1,2}[\s._-]*e\d{1,3}|\d{1,2}x\d{1,3}|temporada\s*\d+|cap(?:itulo)?\.?\s*\d{2,4}|\bova\b|season\s*\d+)\b/i.test(
+        /\b(s0*[1-9]\d?(?:[\s._-]*e\d{1,3}|\b)|\d{1,2}x\d{1,3}|temporada\s*\d+|cap(?:itulo)?\.?\s*\d{2,4}|\bova\b|season\s*\d+|\bbatch\b|\bcompleta\b|\bmugen\s+train\s+arc\b)\b/i.test(
           title
         ) ||
         /\b0[1-9]\.(?:mp4|mkv|avi)\b/i.test(title) ||
@@ -470,7 +470,7 @@ export function scoreAndFilterCandidates(candidates, context) {
         subTierScore = 200;
       } else if (matchSubtitlePreferenceTier(langInfo, profile.subPrimary)) {
         subTierScore = 300;
-        if (/\b(erai-raws|toonshub|castellano|es-es)\b/i.test(title)) subTierScore += 80;
+        if (/\b(erai-raws|toonshub|castellano|es-es)\b/i.test(title)) subTierScore += 35;
       } else if (matchSubtitlePreferenceTier(langInfo, profile.subSecondary)) {
         subTierScore = 200;
       } else if (matchSubtitlePreferenceTier(langInfo, profile.subOther)) {
@@ -488,13 +488,18 @@ export function scoreAndFilterCandidates(candidates, context) {
     }
 
     if (CAM_RE.test(title)) score -= 350;
+    if (/anidex/i.test(String(cand.source || ''))) score -= 120;
 
-    score += resolutionScore(title);
-    score += Math.round(Math.log2((cand.seeders || 1) + 1) * 28);
+    score += resolutionScore(title, cand.seeders || 1);
+    score += Math.round(Math.log2((cand.seeders || 1) + 1) * 36);
 
     if (isPack && !Number.isInteger(cand.hintFileIndex)) score -= 35;
-    if (!isPack && mediaType === 'tv' && cand.sizeBytes > 8 * 1024 ** 3) score -= 120;
-    if (mediaType === 'movie' && cand.sizeBytes > 25 * 1024 ** 3) score -= 120;
+    if (!isPack && mediaType === 'tv' && cand.sizeBytes > 6 * 1024 ** 3) score -= 120;
+    if (mediaType === 'movie') {
+      if (cand.sizeBytes > 25 * 1024 ** 3) score -= 120;
+      if (isAnime && cand.sizeBytes >= 900 * 1024 ** 2 && cand.sizeBytes <= 4.5 * 1024 ** 3) score += 40;
+      if (isAnime && cand.sizeBytes > 5 * 1024 ** 3 && (cand.seeders || 0) < 15) score -= 45;
+    }
 
     scored.push({
       ...cand,

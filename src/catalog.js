@@ -109,6 +109,8 @@ export class CatalogService {
     const originalTitle = raw.original_title || raw.original_name || title;
     const dateStr = raw.release_date || raw.first_air_date || '';
     const year = dateStr ? Number.parseInt(dateStr.slice(0, 4), 10) || null : null;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const isUnreleased = Boolean(dateStr && dateStr > todayIso);
     const isAnime = isAnimeHeuristic({
       genreIds: raw.genre_ids || [],
       genres: raw.genres || [],
@@ -120,6 +122,8 @@ export class CatalogService {
       tmdbId: raw.id,
       mediaType,
       isAnime,
+      isUnreleased,
+      releaseDate: dateStr || null,
       title,
       originalTitle,
       year,
@@ -127,7 +131,11 @@ export class CatalogService {
       overview: raw.overview || '',
       posterUrl: tmdbImage(raw.poster_path, 'w500'),
       backdropUrl: tmdbImage(raw.backdrop_path, 'w1280'),
-      languageRule: isAnime ? '🇯🇵 JP + Sub ES' : '🇪🇸 Castellano',
+      languageRule: isUnreleased
+        ? `🗓 Estreno: ${dateStr}`
+        : isAnime
+        ? '🇯🇵 JP + Sub ES'
+        : '🇪🇸 Castellano',
     };
   }
 
@@ -144,18 +152,28 @@ export class CatalogService {
       return structuredClone(this.discoverCache.payload);
     }
 
+    const todayIso = new Date().toISOString().slice(0, 10);
     const settled = await Promise.allSettled([
       this.#tmdbFetch('/trending/all/week', { language: 'es-ES' }),
-      this.#tmdbFetch('/movie/popular', { language: 'es-ES', page: 1 }),
+      this.#tmdbFetch('/discover/movie', {
+        language: 'es-ES',
+        sort_by: 'popularity.desc',
+        'primary_release_date.lte': todayIso,
+        'vote_count.gte': '20',
+        include_adult: 'false',
+        page: 1,
+      }),
       this.#tmdbFetch('/discover/tv', {
         language: 'es-ES',
         sort_by: 'popularity.desc',
+        'first_air_date.lte': todayIso,
         without_genres: '16',
         page: 1,
       }),
       this.#tmdbFetch('/discover/tv', {
         language: 'es-ES',
         sort_by: 'popularity.desc',
+        'first_air_date.lte': todayIso,
         with_genres: '16',
         with_original_language: 'ja',
         page: 1,
@@ -163,6 +181,10 @@ export class CatalogService {
     ]);
 
     const val = (idx) => (settled[idx].status === 'fulfilled' ? settled[idx].value : { results: [] });
+    const isAlreadyReleased = (r) => {
+      const d = r?.release_date || r?.first_air_date || '';
+      return Boolean(d && d <= todayIso);
+    };
     const trendingAll = val(0);
     const popularMovies = val(1);
     const popularSeries = val(2);
@@ -174,22 +196,38 @@ export class CatalogService {
         {
           id: 'trending',
           title: 'En Tendencia Esta Semana',
-          items: (trendingAll.results || []).map((r) => this.#normalizeCard(r)).filter(Boolean).slice(0, 18),
+          items: (trendingAll.results || [])
+            .filter(isAlreadyReleased)
+            .map((r) => this.#normalizeCard(r))
+            .filter(Boolean)
+            .slice(0, 18),
         },
         {
           id: 'anime',
           title: 'Anime Popular (Japonés + Sub Español)',
-          items: (popularAnime.results || []).map((r) => this.#normalizeCard(r, 'tv')).filter(Boolean).slice(0, 18),
+          items: (popularAnime.results || [])
+            .filter(isAlreadyReleased)
+            .map((r) => this.#normalizeCard(r, 'tv'))
+            .filter(Boolean)
+            .slice(0, 18),
         },
         {
           id: 'series',
           title: 'Series Populares (Audio Castellano)',
-          items: (popularSeries.results || []).map((r) => this.#normalizeCard(r, 'tv')).filter(Boolean).slice(0, 18),
+          items: (popularSeries.results || [])
+            .filter(isAlreadyReleased)
+            .map((r) => this.#normalizeCard(r, 'tv'))
+            .filter(Boolean)
+            .slice(0, 18),
         },
         {
           id: 'movies',
           title: 'Películas Populares (Audio Castellano / Anime)',
-          items: (popularMovies.results || []).map((r) => this.#normalizeCard(r, 'movie')).filter(Boolean).slice(0, 18),
+          items: (popularMovies.results || [])
+            .filter(isAlreadyReleased)
+            .map((r) => this.#normalizeCard(r, 'movie'))
+            .filter(Boolean)
+            .slice(0, 18),
         },
       ].filter((s) => s.items.length > 0),
     };
@@ -248,8 +286,8 @@ export class CatalogService {
     const pushClean = (val) => {
       if (val && typeof val === 'string' && val.trim().length >= 2) {
         const trimmed = val.trim();
-        // Descartar cadenas con kana/kanji/hangul/cirílico para no ensuciar consultas occidentales
-        if (!/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\u0400-\u04ff]/u.test(trimmed)) {
+        // Aceptar únicamente alfabeto latino/ occidental (descartando kana/kanji/cirílico/hebreo/tailandés/árabe)
+        if (/[a-zA-Z]/.test(trimmed) && /^[\p{Script=Latin}\d\s\p{P}\p{S}]+$/u.test(trimmed)) {
           searchTitleSet.add(trimmed);
         }
       }
