@@ -2,7 +2,7 @@ services:
   # Inicializador rápido (1 seg): crea carpetas con permisos 1000:1000,
   # preconfigura qBittorrent sin pedir contraseña local y copia el plugin web de Jellyfin
   sebitv-init:
-    image: sebitv-local:1.6.8
+    image: sebitv-local:1.6.9
     pull_policy: build
     build:
       context: .
@@ -72,7 +72,7 @@ services:
               capabilities: [gpu, compute, utility, video]
 
   sebitv:
-    image: sebitv-local:1.6.8
+    image: sebitv-local:1.6.9
     pull_policy: build
     build:
       context: .

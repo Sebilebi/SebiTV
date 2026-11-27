@@ -350,6 +350,47 @@ export function classifyEpisodeMatch(
       return { matched: false, isPack: false };
     }
 
+    // En Temporada 1 de animes multitemporada sin S01 explícito: rechazar si lleva subtítulo de arco posterior antes del "- 10" (ej. "Dr. Stone Science Future - 10", "Haikyuu!! To the Top - 07")
+    if (seasonNumber === 1 && totalRegularSeasons > 1 && explicitSeason === null && acceptedTitles.length > 0) {
+      const dashSplit = releaseTitle
+        .replace(/^Torrentio[^—]*—\s*/i, '')
+        .split(/\s+-\s+\d{1,3}\b|\[\d{1,3}\]/)[0];
+      if (dashSplit && dashSplit !== releaseTitle) {
+        const baseWords = new Set();
+        for (const t of acceptedTitles) {
+          for (const w of normalizeText(cleanSearchQueryTitle(t)).split(' ')) {
+            if (w) baseWords.add(w);
+          }
+        }
+        const strippedPrefix = dashSplit.replace(/\[[^\]]*\]|\([^)]*\)/g, ' ');
+        const extraArcWords = normalizeText(strippedPrefix)
+          .split(' ')
+          .filter(
+            (w) =>
+              w.length >= 3 &&
+              !/^\d+$/.test(w) &&
+              !baseWords.has(w) &&
+              ![
+                'the',
+                'tv',
+                'bd',
+                'web',
+                'dvd',
+                'remaster',
+                'remastered',
+                'uncensored',
+                'animation',
+                'anime',
+                'complete',
+                'batch',
+              ].includes(w)
+          );
+        if (extraArcWords.length >= 1) {
+          return { matched: false, isPack: false };
+        }
+      }
+    }
+
     const candidates = new Set();
     // Solo usar episodeNumber relativo si es Temporada 1 o el torrent nombra explícitamente esa temporada (ej. "4th Season - 10")
     if (seasonNumber === 1 || explicitSeason === seasonNumber || (hasFinalSeason && seasonNumber === totalRegularSeasons)) {

@@ -1154,4 +1154,23 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
     year: 2022,
   });
   assert.match(suzumeRanked[0].title, /\[Judas\]/);
+
+  // 19. v1.6.9 (Hallazgo Dr. STONE Lupa S01E10): bloquea arcos posteriores nombrados por subtítulo ("Dr. Stone Science Future - 10", "New World - 10") al buscar Temporada 1
+  const drStoneS1Pool = [
+    { title: '[Erai-raws] Dr. Stone Science Future - 10 [1080p][Multiple Subtitle].mkv', seeders: 45, sizeBytes: 1.3e9 },
+    { title: '[Erai-raws] Dr. Stone New World - 10 [1080p][Multiple Subtitle].mkv', seeders: 25, sizeBytes: 1.3e9 },
+    { title: '[Erai-raws] Dr. Stone - 10 [1080p][Multiple Subtitle].mkv', seeders: 18, sizeBytes: 1.3e9 },
+  ];
+  const drStoneLupaS1 = scoreAndFilterCandidates(drStoneS1Pool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['Dr. STONE', 'Dr. Stone'],
+    seasonNumber: 1,
+    episodeNumber: 10,
+    absNumber: 10,
+    totalRegularSeasons: 4,
+    allLanguages: true,
+  });
+  assert.equal(drStoneLupaS1.length, 1);
+  assert.equal(drStoneLupaS1[0].title, '[Erai-raws] Dr. Stone - 10 [1080p][Multiple Subtitle].mkv');
 });
