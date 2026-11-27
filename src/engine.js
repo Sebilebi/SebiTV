@@ -17,7 +17,7 @@ import {
   selectMovieFileFromTorrent,
   cleanSearchQueryTitle,
 } from './scorer.js';
-import { getPreferences, summarizeProfileRule } from './preferences.js';
+import { getPreferences, summarizeProfileRule, inspectReleaseLanguages } from './preferences.js';
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -761,6 +761,22 @@ export class SebiEngine {
           throw new Error('El torrent no contiene un archivo de vídeo correspondiente a este capítulo.');
         }
 
+        // Segunda barrera tras recibir metadatos magnet: si el título en Torrentio venía truncado ("AMZN WEB…") y el archivo real revela grupo inglés/latino puro
+        if (!manualCandidate && !item.is_anime) {
+          const regPref = getPreferences(this.db).regular;
+          if (regPref.audioPrimary === 'es-ES' && regPref.audioSecondary === 'none') {
+            const realFileInfo = inspectReleaseLanguages(targetFile.name);
+            const isRevealedEngScene =
+              /\bwith\s+asl\b|-(?:kitsune|flux|ntb|ethel|successfulcrab|tepes|peculate|edith|fenix|rawr|cakes|ggwp|playweb)\b/i.test(
+                targetFile.name
+              ) && !realFileInfo.hasExplicitCastellano;
+            if (isRevealedEngScene || (realFileInfo.hasExplicitLatino && !realFileInfo.hasExplicitCastellano)) {
+              await this.qbit.deleteTorrent(hash, true);
+              throw new Error(`Archivo real descartado por idioma no Castellano (${targetFile.name}).`);
+            }
+          }
+        }
+
         const isPack = files.filter((f) => /\.(mkv|mp4|avi|webm|m4v|ts)$/i.test(f.name)).length > 1;
 
         this.db.updateEpisodeState(ep.id, {
@@ -923,6 +939,21 @@ export class SebiEngine {
         if (!movieFile) {
           await this.qbit.deleteTorrent(hash, true);
           throw new Error('El torrent no contiene un archivo de película válido.');
+        }
+
+        if (!manualCandidate && !item.is_anime) {
+          const regPref = getPreferences(this.db).regular;
+          if (regPref.audioPrimary === 'es-ES' && regPref.audioSecondary === 'none') {
+            const realFileInfo = inspectReleaseLanguages(movieFile.name);
+            const isRevealedEngScene =
+              /\bwith\s+asl\b|-(?:kitsune|flux|ntb|ethel|successfulcrab|tepes|peculate|edith|fenix|rawr|cakes|ggwp|playweb)\b/i.test(
+                movieFile.name
+              ) && !realFileInfo.hasExplicitCastellano;
+            if (isRevealedEngScene || (realFileInfo.hasExplicitLatino && !realFileInfo.hasExplicitCastellano)) {
+              await this.qbit.deleteTorrent(hash, true);
+              throw new Error(`Película descartada por idioma no Castellano (${movieFile.name}).`);
+            }
+          }
         }
 
         await this.qbit.selectOnlyNeededFiles(

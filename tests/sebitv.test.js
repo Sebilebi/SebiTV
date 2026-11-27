@@ -920,4 +920,41 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
     preferences: { regular: { videoQuality: '4k', allowQualityFallback: false } },
   });
   assert.equal(duneLupaAll.length, 2);
+
+  // 13. v1.6.2: The Last of Us S01E05 bloquea releases ingleses "🇬🇧 / 🇪🇸" de 2 banderas sin Dual/Multi/Spa (Kitsune "with ASL" y MIRCrew "Ita Eng Spa ... SubS") y elige MejorTorrent Castellano
+  const tlouPool = [
+    {
+      source: 'imdb:TorrentGalaxy',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — The Last of Us S01E05 Endure and Survive with ASL 1080p AMZN WEB… | 👤 19 💾 3.61 GB ⚙️ TorrentGalaxy | 🇬🇧 / 🇪🇸',
+      seeders: 19,
+      sizeBytes: 3.61e9,
+    },
+    {
+      source: 'imdb:TorrentGalaxy',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — The Last of Us S01e05 [1080p Ita Eng Spa h265 10bit SubS] byMe7alh [MIRCrew] | 👤 2 💾 1010.9 MB ⚙️ TorrentGalaxy | 🇬🇧 / 🇮🇹 / 🇪🇸',
+      seeders: 2,
+      sizeBytes: 1.01e9,
+    },
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 720p — The Last of Us - Temporada 1 [HDTV 720p][Cap.105][AC3 5.1 Castellano][www.AtomoHD.beer] | 👤 26 💾 1.66 GB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 26,
+      sizeBytes: 1.66e9,
+    },
+  ];
+  const tlouRanked = scoreAndFilterCandidates(tlouPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['The Last of Us'],
+    seasonNumber: 1,
+    episodeNumber: 5,
+  });
+  assert.equal(tlouRanked.length, 1);
+  assert.match(tlouRanked[0].source, /MejorTorrent/);
 });

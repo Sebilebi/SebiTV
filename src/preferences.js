@@ -133,16 +133,22 @@ export function inspectReleaseLanguages(rawTitle = '') {
   const hasRuFlag = t.includes('🇷🇺');
 
   const filenamePart = t.split('|')[0] || t;
-  const hasFilenameSpaAudio = /\b(multi|dual|\bspa\b|\besp\b|spanish|castellano)\b/i.test(filenamePart);
+  const isSpaSubTagInFilename = /\b(?:spa|esp|spanish)[\s._-]*(?:[a-z0-9]+\s+){0,3}subs?\b/i.test(filenamePart);
+  const hasFilenameSpaAudio =
+    !isSpaSubTagInFilename && /\b(multi|dual|\bspa\b|\besp\b|spanish|castellano)\b/i.test(filenamePart);
+  const isEnglishSceneWebDl =
+    /\bwith\s+asl\b|-(?:kitsune|flux|ntb|ethel|successfulcrab|tepes|peculate|edith|fenix|rawr|cakes|ggwp|playweb)\b/i.test(
+      t
+    );
 
   const hasVerifiedCastellano =
     /\b(castellano|espa[ñn]ol\s+de\s+espa[ñn]a|es-es|dontorrent|mejortorrent|wolfmax\w*|atomohd|pctnew|newpct|pctmix|selecta[\s._-]*visi[oó]n|eth@n|bryan_122|mony2007)\b/i.test(
       t
     );
 
-  // En releases internacionales en inglés (ej. FLUX/Rapta/REWARD), Torrentio lista 4+ banderas de subtítulos sin "Multi Audio" ni "Spa" en el nombre
+  // En releases internacionales en inglés (ej. Kitsune/FLUX/Rapta/REWARD o "🇬🇧 / 🇪🇸" sin Dual/Multi/Spa), Torrentio lista banderas de subtítulos
   const flagsAreSubtitlesOnly =
-    flagCount >= 4 &&
+    (flagCount >= 4 || (hasGbFlag && flagCount >= 2) || isEnglishSceneWebDl) &&
     !/\b(multi[\s._-]*audio|dual[\s._-]*audio)\b/i.test(t) &&
     !hasFilenameSpaAudio &&
     !hasVerifiedCastellano;
