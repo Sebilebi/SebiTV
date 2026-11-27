@@ -183,10 +183,21 @@ export function inspectReleaseLanguages(rawTitle = '') {
       !flagsAreSubtitlesOnly &&
       /\b(spanish|espa[ñn]ol|\besp\b|\bspa\b|dual[\s._-]*(?:esp|cast|spa))\b/i.test(t));
 
-  const isFrenchOnlyMulti = /\b(truefrench|vff|vfi|vostfr)\b/i.test(t) && !hasEsFlag && !/\b(castellano|spanish|espa[ñn]ol|\bspa\b)\b/i.test(t);
+  const isFrenchOnlyMulti =
+    (/\b(truefrench|vff|vfi|vostfr|tsundere[\s._-]*raws)\b/i.test(t) ||
+      /-(?:kaf|amb3r|fw|serqph|ulysse|slay3r|franime)(?:\b|\.|\[|\s|\||$)/i.test(t)) &&
+    !hasEsFlag &&
+    !/\b(castellano|spanish|espa[ñn]ol|\bspa\b)\b/i.test(t);
+
+  const isCrunchyrollImplicitSub =
+    !isFrenchOnlyMulti &&
+    !/\b(eng(?:lish)?[\s._-]*subs?(?:[\s._-]*only)?|dubbed[\s._-]*only)\b/i.test(t) &&
+    /\bcr[\s._-]*(?:web-?dl|webrip)\b/i.test(t) &&
+    !/\b(erai-raws|toonshub|nandesuka|multisub|multi-subs|multi[\s._-]*subs?|multiple[\s._-]*subtitle)\b/i.test(t);
 
   const hasMultiSub =
     (flagsAreSubtitlesOnly && hasEsFlag) ||
+    isCrunchyrollImplicitSub ||
     /\b(erai-raws|toonshub|nandesuka|multisub|multi-subs|multi[\s._-]*subs?|multiple[\s._-]*subtitle|multi[\s._-]*language)\b/i.test(
       t
     ) ||
@@ -200,9 +211,10 @@ export function inspectReleaseLanguages(rawTitle = '') {
     );
 
   const hasMultiAudio =
-    (/\b(multi[\s._-]*audio|dual[\s._-]*audio|\bdual\b|\bmulti\b)\b/i.test(t) &&
+    !isFrenchOnlyMulti &&
+    ((/\b(multi[\s._-]*audio|dual[\s._-]*audio|\bdual\b|\bmulti\b)\b/i.test(t) &&
       !/\b(multisub|multi-subs|multi[\s._-]*sub)\b/i.test(t)) ||
-    (hasFilenameSpaAudio && flagCount >= 3 && !flagsAreSubtitlesOnly);
+      (hasFilenameSpaAudio && flagCount >= 3 && !flagsAreSubtitlesOnly));
 
   const hasEngDubOnly = /\b(eng(?:lish)?[\s._-]*dub(?:[\s._-]*only)?|dubbed[\s._-]*only)\b/i.test(t);
   const hasJapaneseAudio =
@@ -223,7 +235,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
   if (hasEnglishAudio) badges.push('🇬🇧 Inglés');
   if (hasMultiAudio) badges.push('🌐 Multi-Audio');
   if (!flagsAreSubtitlesOnly) {
-    if (hasFrFlag || /\b(french|truefrench|vff|vf\b|vostfr)\b/i.test(t)) badges.push('🇫🇷 Francés');
+    if (isFrenchOnlyMulti || hasFrFlag || /\b(french|truefrench|vff|vf\b|vostfr)\b/i.test(t)) badges.push('🇫🇷 Francés');
     if (hasItFlag || /\b(\bita\b|italiano)\b/i.test(t)) badges.push('🇮🇹 Italiano');
     if (hasDeFlag || /\b(german|deutsch|\bger\b)\b/i.test(t)) badges.push('🇩🇪 Alemán');
     if (hasPtFlag) badges.push('🇧🇷 Portugués');
@@ -266,6 +278,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
     hasMultiAudio,
     hasEngDubOnly,
     hasMultiSub,
+    isCrunchyrollImplicitSub,
     hasSpanishSub,
     hasEnglishSub,
     isVoseOnly,

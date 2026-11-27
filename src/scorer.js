@@ -97,19 +97,73 @@ function numberInRangePattern(releaseTitle, targetNum) {
   return false;
 }
 
-function extractExplicitSeasonInfo(releaseTitle = '') {
+function extractExplicitSeasonInfo(releaseTitle = '', acceptedTitles = []) {
   const hasFinalSeason = /\b(final[\s._-]*season|the[\s._-]*final)\b/i.test(releaseTitle);
-  const patterns = [
+
+  const directPatterns = [
     /\bs0*(\d{1,2})(?:[\s._-]*e\d|\b)/i,
     /\b(?:season|temporada|box)\s*0*(\d{1,2})\b/i,
-    /\b(\d{1,2})(?:st|nd|rd|th)\s+season\b/i,
     /\b0*(\d{1,2})x\d{1,3}\b/i,
   ];
-  for (const re of patterns) {
+  for (const re of directPatterns) {
     const m = releaseTitle.match(re);
-    if (m) return { explicitSeason: Number(m[1]), hasFinalSeason };
+    if (m) return { explicitSeason: Number(m[1]), hasFinalSeason, hasArcNamedSubSeason: false };
   }
-  return { explicitSeason: null, hasFinalSeason };
+
+  // Ordinales en inglés ("2nd Season", "Second Season", "3rd Season", "Third Season"...)
+  const wordOrdMap = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6 };
+  const ordMatch =
+    releaseTitle.match(/\b(\d{1,2})(?:st|nd|rd|th)\s+season\b/i) ||
+    releaseTitle.match(/\b(first|second|third|fourth|fifth|sixth)\s+season\b/i);
+
+  if (ordMatch) {
+    const rawVal = ordMatch[1].toLowerCase();
+    const num = wordOrdMap[rawVal] || Number(rawVal);
+
+    // Detectar si antes de "2nd Season" hay un subtítulo de arco ajeno al título raíz (ej. "Haikyuu!! To the Top 2nd Season" = S4 Parte 2, NO S2)
+    if (acceptedTitles.length > 0 && num >= 2) {
+      const baseWords = new Set();
+      for (const t of acceptedTitles) {
+        const cleanT = normalizeText(cleanSearchQueryTitle(t));
+        const toks = cleanT.split(' ').filter(Boolean);
+        if (toks.length <= 5) {
+          for (const w of toks) baseWords.add(w);
+        }
+      }
+      const prefixRaw = releaseTitle
+        .slice(0, ordMatch.index)
+        .replace(/^Torrentio[^—]*—\s*/i, '')
+        .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ');
+      const prefixWords = normalizeText(prefixRaw)
+        .split(' ')
+        .filter(
+          (w) =>
+            w.length >= 3 &&
+            !baseWords.has(w) &&
+            !['the', 'tv', 'bd', 'web', 'ova', 'part', 'cour', 'season', 'series'].includes(w)
+        );
+      if (prefixWords.length >= 1) {
+        return { explicitSeason: null, hasFinalSeason, hasArcNamedSubSeason: true };
+      }
+    }
+    return { explicitSeason: num, hasFinalSeason, hasArcNamedSubSeason: false };
+  }
+
+  // Números romanos tras el título en Anime ("Mob Psycho 100 II - 05", "Overlord III - 08", "Overlord IV")
+  const romanAllowedInBase = acceptedTitles.some((t) => /\b(ii|iii|iv|v)\b/i.test(t));
+  if (!romanAllowedInBase) {
+    const romanMap = { ii: 2, iii: 3, iv: 4, v: 5 };
+    const romMatch = releaseTitle.match(/(?:^|\s)(II|III|IV|V)(?=\s*-\s*\d|\s*\[|\s*\(|\s+(?:s\d|ep?\d|1080p|720p|2160p|bd|web))/);
+    if (romMatch) {
+      return {
+        explicitSeason: romanMap[romMatch[1].toLowerCase()] || null,
+        hasFinalSeason,
+        hasArcNamedSubSeason: false,
+      };
+    }
+  }
+
+  return { explicitSeason: null, hasFinalSeason, hasArcNamedSubSeason: false };
 }
 
 function matchesMovieDistinctiveSubtitle(releaseTitle, acceptedTitles = [], year = null) {
@@ -170,11 +224,23 @@ function matchesMovieDistinctiveSubtitle(releaseTitle, acceptedTitles = [], year
 
 export function classifyEpisodeMatch(
   releaseTitle,
-  { seasonNumber, episodeNumber, absNumber, isAnime, totalRegularSeasons = 0, episodeTitle = '', episodeYear = null }
+  {
+    seasonNumber,
+    episodeNumber,
+    absNumber,
+    isAnime,
+    totalRegularSeasons = 0,
+    episodeTitle = '',
+    episodeYear = null,
+    acceptedTitles = [],
+  }
 ) {
   const s2 = pad2(seasonNumber);
   const e2 = pad2(episodeNumber);
-  const { explicitSeason, hasFinalSeason } = extractExplicitSeasonInfo(releaseTitle);
+  const { explicitSeason, hasFinalSeason, hasArcNamedSubSeason } = extractExplicitSeasonInfo(
+    releaseTitle,
+    acceptedTitles
+  );
 
   // En Anime, grupos como Erai-raws usan "(2019)" o "(2025)" para indicar Temporada 2 o 3 sin escribir S02/S03:
   // si el título trae un año entre paréntesis distinto al año real de emisión de este capítulo/OVA, rechazar.
@@ -191,30 +257,60 @@ export function classifyEpisodeMatch(
       const exactZero =
         new RegExp(`\\bs0*0[\\s._-]*e0*${episodeNumber}(?!\\d)`, 'i').test(releaseTitle) ||
         new RegExp(`\\b0x0*${episodeNumber}(?!\\d)`, 'i').test(releaseTitle);
-      return { matched: exactZero, isPack: false };
+      return { matched: exactZero, isPack: false, exactOvaMatch: exactZero };
     }
-    if ((explicitSeason !== null && explicitSeason > 0) || hasFinalSeason) {
+    if ((explicitSeason !== null && explicitSeason > 0) || hasFinalSeason || hasArcNamedSubSeason) {
       return { matched: false, isPack: false };
     }
-    const hasOvaMarker = /\b(ova|oad|ona|special|especial|sp\d*|jump[\s._-]*festa)\b/i.test(releaseTitle);
+    const hasOvaMarker = /\b(ovas?|oads?|onas?|specials?|especiales?|sp\d*|jump[\s._-]*festa)\b/i.test(releaseTitle);
     if (!hasOvaMarker) return { matched: false, isPack: false };
 
+    const ovaStop = new Set([
+      'episodio',
+      'episode',
+      'especial',
+      'special',
+      'ova',
+      'oad',
+      'los',
+      'las',
+      'del',
+      'una',
+      'por',
+      'con',
+      'que',
+      'the',
+      'and',
+      'for',
+      'aparece',
+      'appears',
+    ]);
     const epTitleWords = normalizeText(episodeTitle)
       .split(' ')
-      .filter((w) => w.length >= 4 && !['episodio', 'episode', 'especial', 'special'].includes(w));
+      .filter((w) => w.length >= 3 && !ovaStop.has(w));
     const relWords = new Set(normalizeText(releaseTitle).split(' ').filter(Boolean));
-    if (epTitleWords.length >= 2 && epTitleWords.filter((w) => relWords.has(w)).length >= 2) {
-      return { matched: true, isPack: false };
+    const matchedTitleWords = epTitleWords.filter((w) => relWords.has(w)).length;
+    if (matchedTitleWords >= 2 || (epTitleWords.length >= 1 && matchedTitleWords >= 1)) {
+      return { matched: true, isPack: false, exactOvaMatch: true };
     }
 
     const ovaNumMatch = releaseTitle.match(/\b(?:ova|oad|special|especial|sp)[\s._-]*0*(\d{1,2})\b/i);
     if (ovaNumMatch) {
-      return { matched: Number(ovaNumMatch[1]) === episodeNumber, isPack: false };
+      const ok = Number(ovaNumMatch[1]) === episodeNumber;
+      return { matched: ok, isPack: false, exactOvaMatch: ok };
     }
     const dashNum = new RegExp(`(?:\\s-\\s*|\\[)0*${episodeNumber}(?:\\s|\\]|\\.|$)`, 'i').test(releaseTitle);
-    if (dashNum || episodeNumber === 1) {
-      return { matched: true, isPack: /\b(ovas|specials|batch|complete)\b/i.test(releaseTitle) };
+    if (dashNum) {
+      return { matched: true, isPack: /\b(ovas|specials|batch|complete)\b/i.test(releaseTitle), exactOvaMatch: true };
     }
+    if (episodeNumber === 1) {
+      return { matched: true, isPack: /\b(ovas|specials|batch|complete)\b/i.test(releaseTitle), exactOvaMatch: false };
+    }
+    return { matched: false, isPack: false };
+  }
+
+  // Bloquear "To the Top 2nd Season" (arco de S4) cuando se pide S1/S2/S3
+  if (hasArcNamedSubSeason && seasonNumber < totalRegularSeasons) {
     return { matched: false, isPack: false };
   }
 
@@ -456,16 +552,21 @@ export function scoreAndFilterCandidates(candidates, context) {
     }
 
     let isPack = false;
+    let exactOvaMatch = false;
     if (mediaType === 'tv') {
       if (cand.matchedExactImdbEpisode) {
-        const { explicitSeason, hasFinalSeason } = extractExplicitSeasonInfo(title);
+        const { explicitSeason, hasFinalSeason, hasArcNamedSubSeason } = extractExplicitSeasonInfo(
+          title,
+          acceptedTitles
+        );
         const parenYear =
           isAnime && episodeYear && explicitSeason === null && !/\b(?:19|20)\d{2}\s*[-~]\s*(?:19|20)\d{2}\b/.test(title)
             ? title.match(/\((19\d{2}|20\d{2})\)/)
             : null;
         if (
           (parenYear && Math.abs(Number(parenYear[1]) - episodeYear) > 1) ||
-          (seasonNumber === 0 && ((explicitSeason !== null && explicitSeason > 0) || hasFinalSeason)) ||
+          (seasonNumber === 0 && ((explicitSeason !== null && explicitSeason > 0) || hasFinalSeason || hasArcNamedSubSeason)) ||
+          (seasonNumber > 0 && hasArcNamedSubSeason && seasonNumber < totalRegularSeasons) ||
           (seasonNumber > 0 && explicitSeason !== null && explicitSeason !== seasonNumber) ||
           (seasonNumber > 0 &&
             hasFinalSeason &&
@@ -473,6 +574,19 @@ export function scoreAndFilterCandidates(candidates, context) {
         ) {
           stats.episodeOrYearMismatch++;
           continue;
+        }
+        if (seasonNumber === 0) {
+          const epCheckZero = classifyEpisodeMatch(title, {
+            seasonNumber: 0,
+            episodeNumber,
+            absNumber,
+            isAnime,
+            totalRegularSeasons,
+            episodeTitle,
+            episodeYear,
+            acceptedTitles,
+          });
+          exactOvaMatch = Boolean(epCheckZero.exactOvaMatch);
         }
         isPack = Number.isInteger(cand.hintFileIndex);
       } else {
@@ -484,12 +598,14 @@ export function scoreAndFilterCandidates(candidates, context) {
           totalRegularSeasons,
           episodeTitle,
           episodeYear,
+          acceptedTitles,
         });
         if (!epCheck.matched) {
           stats.episodeOrYearMismatch++;
           continue;
         }
         isPack = epCheck.isPack;
+        exactOvaMatch = Boolean(epCheck.exactOvaMatch);
       }
     } else {
       // En películas: bloquear capítulos o temporadas de series ("S02", "Batch", "Mugen Train Arc", "Hierro 08.mp4") y archivos diminutos
@@ -579,7 +695,7 @@ export function scoreAndFilterCandidates(candidates, context) {
       if (profile.subPrimary === 'off' || audioIsAlreadySpanish) {
         subTierScore = 200;
       } else if (matchSubtitlePreferenceTier(langInfo, profile.subPrimary)) {
-        subTierScore = 300;
+        subTierScore = langInfo.isCrunchyrollImplicitSub ? 225 : 300;
         if (/\b(erai-raws|toonshub|castellano|es-es)\b/i.test(title)) subTierScore += 35;
       } else if (matchSubtitlePreferenceTier(langInfo, profile.subSecondary)) {
         subTierScore = 200;
@@ -609,6 +725,7 @@ export function scoreAndFilterCandidates(candidates, context) {
 
     if (CAM_RE.test(title)) score -= 350;
     if (/anidex/i.test(String(cand.source || ''))) score -= 120;
+    if (mediaType === 'tv' && seasonNumber === 0 && exactOvaMatch) score += 200;
 
     const wants4k = !allLanguages && (prefQuality === 'best' || prefQuality === '4k');
     score += qualityPreferenceScore(langInfo.resolution, cand.seeders || 1, prefQuality, {

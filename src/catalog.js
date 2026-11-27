@@ -332,7 +332,10 @@ export class CatalogService {
 
     const searchTitleSet = new Set();
     const isTvSeasonSpecificAlias = (s = '') =>
-      type === 'tv' && /\b(final\s+season|\d+(?:st|nd|rd|th)\s+season|season\s*\d+|part\s*\d+|\bhen\b)\b/i.test(s);
+      type === 'tv' &&
+      /\b(final\s+season|\d+(?:st|nd|rd|th)\s+season|season\s*\d+|part\s*\d+|\bhen\b|\bvs\.?\b|to\s+the\s+top|stone\s+wars)\b/i.test(
+        s
+      );
 
     const pushClean = (val) => {
       if (val && typeof val === 'string' && val.trim().length >= 2) {

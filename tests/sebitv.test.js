@@ -971,4 +971,86 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(tlouRanked.length, 1);
   assert.match(tlouRanked[0].source, /MejorTorrent/);
+
+  // 14. v1.6.4 (Hallazgos Haikyuu!! / Mob Psycho):
+  //     a) Descarta grupos franceses .MULTi. (KAF / Tsundere-Raws / AMB3R) y evita confundir "To the Top 2nd Season" (S4P2) con S2;
+  //     b) Reconoce CR WEB-DL como MultiSub Crunchyroll;
+  //     c) En OVA S00E01 ("Aparece Lev Haiba"), prioriza "Lev Appears!" sobre un OVA genérico sin número ("Haru Kou Volley");
+  //     d) Soporta temporadas en números romanos ("Mob Psycho 100 II - 05" = Temporada 2).
+  const haikyuuS2Pool = [
+    {
+      source: 'imdb:TorrentGalaxy',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Haikyu.S02.MULTi.1080p.BluRay.x265-KAF | Haikyu.S02E11.mkv | 👤 72 💾 349 MB ⚙️ TorrentGalaxy | Dubbed / Multi Audio',
+      seeders: 72,
+      sizeBytes: 349e6,
+    },
+    {
+      source: 'nyaa.si',
+      title: '[Erai-raws] Haikyuu!! To the Top 2nd Season - 11 [1080p][Multiple Subtitle].mkv',
+      seeders: 18,
+      sizeBytes: 1.3e9,
+    },
+    {
+      source: 'imdb:ThePirateBay',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Haikyu S02E11 Above 1080p CR WEB-DL DUAL DDP2 0 H 264-Kitsune | 👤 14 💾 1.41 GB ⚙️ ThePirateBay | Dubbed / Dual Audio',
+      seeders: 14,
+      sizeBytes: 1.41e9,
+    },
+  ];
+  const hkS2Ranked = scoreAndFilterCandidates(haikyuuS2Pool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['Haikyuu!! Los ases del vóley', 'Haikyuu!!', 'Haikyu!!', 'Haikyu'],
+    seasonNumber: 2,
+    episodeNumber: 11,
+    absNumber: 36,
+    totalRegularSeasons: 4,
+  });
+  assert.equal(hkS2Ranked.length, 1);
+  assert.match(hkS2Ranked[0].title, /CR WEB-DL/);
+
+  const haikyuuOvaPool = [
+    {
+      source: 'nyaa.si',
+      title: '[Erai-raws] Haikyuu!! Tokushuu! Haru Kou Volley ni Kaketa Seishun - OVA [1080p].mkv',
+      seeders: 8,
+      sizeBytes: 1.3e9,
+    },
+    {
+      source: 'imdb:NyaaSi',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — [Erai-raws] Haikyuu!! OADs - Lev Appears! (v2) [1080p].mkv | 👤 5 💾 1.38 GB ⚙️ NyaaSi',
+      seeders: 5,
+      sizeBytes: 1.38e9,
+    },
+  ];
+  const hkOvaRanked = scoreAndFilterCandidates(haikyuuOvaPool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['Haikyuu!!', 'Haikyu!!'],
+    seasonNumber: 0,
+    episodeNumber: 1,
+    totalRegularSeasons: 4,
+    episodeTitle: 'Aparece Lev Haiba',
+  });
+  assert.match(hkOvaRanked[0].title, /Lev Appears/);
+
+  const mobPool = [
+    { title: '[Erai-raws] Mob Psycho 100 - 05 [1080p][Multiple Subtitle].mkv', seeders: 30, sizeBytes: 1.2e9 },
+    { title: '[Erai-raws] Mob Psycho 100 III - 05 [1080p][Multiple Subtitle].mkv', seeders: 40, sizeBytes: 1.2e9 },
+    { title: '[Erai-raws] Mob Psycho 100 II - 05 [1080p][Multiple Subtitle].mkv', seeders: 25, sizeBytes: 1.2e9 },
+  ];
+  const mobS2Ranked = scoreAndFilterCandidates(mobPool, {
+    isAnime: true,
+    mediaType: 'tv',
+    acceptedTitles: ['Mob Psycho 100'],
+    seasonNumber: 2,
+    episodeNumber: 5,
+    absNumber: 17,
+    totalRegularSeasons: 3,
+  });
+  assert.equal(mobS2Ranked.length, 1);
+  assert.match(mobS2Ranked[0].title, /Mob Psycho 100 II - 05/);
 });

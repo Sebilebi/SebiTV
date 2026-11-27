@@ -279,14 +279,15 @@ export class SebiEngine {
     }
 
     if (item.is_anime) {
-      const primary = cleanSearchQueryTitle(rawTitles[0] || item.title);
-      const esTitle = cleanSearchQueryTitle(item.title);
+      const primary = cleanSearchQueryTitle(rawTitles[0] || item.title).replace(/!+/g, '').trim();
+      const esTitle = cleanSearchQueryTitle(item.title).replace(/!+/g, '').trim();
       const epNumPad = pad2(ep.abs_number || ep.episode_number);
       const epNum3 = String(ep.abs_number || ep.episode_number).padStart(3, '0');
 
       if (ep.season_number === 0) {
         // Temporada 0 (OVAs y Especiales): buscar explícitamente OVA / Special / S00Exx
         tasks.push(this.indexers.searchNyaa(`${primary} OVA`));
+        tasks.push(this.indexers.searchNyaa(`${primary} OAD`));
         tasks.push(this.indexers.searchNyaa(`${primary} Special`));
         tasks.push(this.indexers.searchNyaa(`${primary} S00E${e2}`));
         tasks.push(this.indexers.searchNyaaNonEnglish(`${primary} OVA`));
@@ -295,12 +296,12 @@ export class SebiEngine {
       } else {
         tasks.push(this.indexers.searchNyaa(`Erai-raws ${primary} ${epNumPad}`));
         tasks.push(this.indexers.searchNyaa(`${primary} ${epNumPad} Multi`));
+        tasks.push(this.indexers.searchNyaa(`${primary} S${s2}E${e2}`));
         tasks.push(this.indexers.searchNyaa(`${primary} ${epNum3}`));
         tasks.push(this.indexers.searchNyaaNonEnglish(`${primary} ${epNumPad}`));
         if (ep.season_number > 1) {
           const ord = englishOrdinal(ep.season_number);
           tasks.push(this.indexers.searchNyaa(`${primary} ${ord} Season ${e2}`));
-          tasks.push(this.indexers.searchNyaa(`${primary} S${s2}E${e2}`));
         }
         tasks.push(this.indexers.searchNyaa(`${primary} Batch`));
         tasks.push(this.indexers.searchKnaben(`${primary} ${epNumPad}`));
