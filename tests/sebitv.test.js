@@ -701,4 +701,32 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(mugenClean.length, 1);
   assert.match(mugenClean[0].title, /Mugen Ressha Hen/);
+
+  // 10. v1.5.4: Chernobyl BluRay X264-REWARD (8 banderas nórdicas/europeas de subtítulos sin Multi Audio ni Spa) queda descartado antes de bajar 7.9 GB
+  const chernobylPool = [
+    {
+      source: 'imdb:ThePirateBay',
+      matchedExactImdbEpisode: true,
+      title:
+        'Torrentio 1080p — Chernobyl.S01.PROPER.1080p.BluRay.X264-REWARD | Chernobyl.S01E03.mkv | 👤 250 💾 7.9 GB ⚙️ ThePirateBay | 🇬🇧 / 🇪🇸 / 🇫🇷 / 🇳🇱 / 🇨🇿 / 🇩🇰 / 🇸🇪 / 🇳🇴',
+      seeders: 250,
+      sizeBytes: 7.9e9,
+    },
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 720p — Chernobyl - Temporada 1 [HDTV 720p][Cap.103][AC3 5.1 Castellano] | 👤 15 💾 1.79 GB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 15,
+      sizeBytes: 1.79e9,
+    },
+  ];
+  const chernobylRanked = scoreAndFilterCandidates(chernobylPool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['Chernobyl'],
+    seasonNumber: 1,
+    episodeNumber: 3,
+  });
+  assert.equal(chernobylRanked.length, 1);
+  assert.match(chernobylRanked[0].source, /MejorTorrent/);
 });

@@ -131,7 +131,7 @@ export class SebiEngine {
    */
   async ensureRegistered(mediaType, tmdbId, { forceRefresh = false } = {}) {
     const existing = this.db.getCatalogItemByTmdb(Number(tmdbId), mediaType);
-    const needsSchemaUpgrade = existing && Number(existing.catalog_schema_ver || 1) < 3;
+    const needsSchemaUpgrade = existing && Number(existing.catalog_schema_ver || 1) < 4;
     if (existing && !forceRefresh && !needsSchemaUpgrade) {
       if (!existing.jellyfin_id) {
         const jf = await this.jellyfin.findItemByTmdb(existing.tmdb_id, existing.media_type);
@@ -1431,12 +1431,15 @@ export class SebiEngine {
   async deleteMovieMedia(itemId) {
     const movie = this.db.getCatalogItemById(Number(itemId));
     if (!movie) return null;
+    const oldJfId = movie.jellyfin_id;
+    const oldFilePath = movie.file_path;
+    const oldFolderPath = movie.folder_path;
 
     if (movie.torrent_hash) {
       await this.qbit.deleteTorrent(movie.torrent_hash, true).catch(() => {});
     }
-    if (movie.folder_path && fs.existsSync(movie.folder_path)) {
-      fs.rmSync(movie.folder_path, { recursive: true, force: true });
+    if (oldFolderPath && fs.existsSync(oldFolderPath)) {
+      fs.rmSync(oldFolderPath, { recursive: true, force: true });
     }
 
     this.db.updateMovieDownloadState(movie.id, {
@@ -1449,8 +1452,13 @@ export class SebiEngine {
       jellyfinId: null,
     });
 
-    if (movie.file_path) {
-      await this.jellyfin.notifyMediaUpdated(movie.file_path, 'Deleted');
+    if (oldJfId) {
+      await this.jellyfin.deleteItem(oldJfId);
+    }
+    if (oldFolderPath) {
+      await this.jellyfin.notifyMediaUpdated(oldFolderPath, 'Deleted');
+    } else if (oldFilePath) {
+      await this.jellyfin.notifyMediaUpdated(oldFilePath, 'Deleted');
     }
     await this.jellyfin.refreshLibraries();
     return this.getRichCatalogItem(movie.id);

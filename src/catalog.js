@@ -153,14 +153,16 @@ export class CatalogService {
     }
 
     const todayIso = new Date().toISOString().slice(0, 10);
+    const digitalMovieCutoffIso = new Date(Date.now() - 45 * 86400_000).toISOString().slice(0, 10);
     const settled = await Promise.allSettled([
       this.#tmdbFetch('/trending/all/week', { language: 'es-ES' }),
       this.#tmdbFetch('/discover/movie', {
         language: 'es-ES',
+        region: 'US',
         sort_by: 'popularity.desc',
-        with_release_type: '4|5|6', // Solo Digital, BluRay/Físico o TV (excluye estrenos solo-cine o futuros)
-        'release_date.lte': todayIso,
-        'vote_count.gte': '60',
+        with_release_type: '4|5|6', // Solo Digital, BluRay/Físico o TV
+        'primary_release_date.lte': digitalMovieCutoffIso,
+        'vote_count.gte': '180',
         include_adult: 'false',
         page: 1,
       }),
@@ -168,7 +170,7 @@ export class CatalogService {
         language: 'es-ES',
         sort_by: 'popularity.desc',
         'first_air_date.lte': todayIso,
-        'vote_count.gte': '40',
+        'vote_count.gte': '60',
         without_genres: '16',
         page: 1,
       }),
@@ -176,7 +178,7 @@ export class CatalogService {
         language: 'es-ES',
         sort_by: 'popularity.desc',
         'first_air_date.lte': todayIso,
-        'vote_count.gte': '15',
+        'vote_count.gte': '20',
         with_genres: '16',
         with_original_language: 'ja',
         page: 1,
@@ -184,11 +186,15 @@ export class CatalogService {
     ]);
 
     const val = (idx) => (settled[idx].status === 'fulfilled' ? settled[idx].value : { results: [] });
-    const isAlreadyReleased = (r) => {
+    const isAlreadyReleased = (r, forcedType = null) => {
+      const mType = forcedType || r?.media_type;
       const d = r?.release_date || r?.first_air_date || '';
-      if (!d || d > todayIso) return false;
+      if (!d) return false;
+      if (mType === 'movie' && d > digitalMovieCutoffIso) return false;
+      if (mType !== 'movie' && d > todayIso) return false;
       const isAnim = (r.genre_ids || []).includes(16) && r.original_language === 'ja';
-      return (r.vote_count || 0) >= (isAnim ? 12 : 45);
+      const minVotes = mType === 'movie' ? (isAnim ? 30 : 180) : isAnim ? 15 : 50;
+      return (r.vote_count || 0) >= minVotes;
     };
     const trendingAll = val(0);
     const popularMovies = val(1);
@@ -202,7 +208,7 @@ export class CatalogService {
           id: 'trending',
           title: 'En Tendencia Esta Semana',
           items: (trendingAll.results || [])
-            .filter(isAlreadyReleased)
+            .filter((r) => isAlreadyReleased(r))
             .map((r) => this.#normalizeCard(r))
             .filter(Boolean)
             .slice(0, 18),
@@ -211,7 +217,7 @@ export class CatalogService {
           id: 'anime',
           title: 'Anime Popular (Japonés + Sub Español)',
           items: (popularAnime.results || [])
-            .filter(isAlreadyReleased)
+            .filter((r) => isAlreadyReleased(r, 'tv'))
             .map((r) => this.#normalizeCard(r, 'tv'))
             .filter(Boolean)
             .slice(0, 18),
@@ -220,7 +226,7 @@ export class CatalogService {
           id: 'series',
           title: 'Series Populares (Audio Castellano)',
           items: (popularSeries.results || [])
-            .filter(isAlreadyReleased)
+            .filter((r) => isAlreadyReleased(r, 'tv'))
             .map((r) => this.#normalizeCard(r, 'tv'))
             .filter(Boolean)
             .slice(0, 18),
@@ -229,7 +235,7 @@ export class CatalogService {
           id: 'movies',
           title: 'Películas Populares (Audio Castellano / Anime)',
           items: (popularMovies.results || [])
-            .filter(isAlreadyReleased)
+            .filter((r) => isAlreadyReleased(r, 'movie'))
             .map((r) => this.#normalizeCard(r, 'movie'))
             .filter(Boolean)
             .slice(0, 18),
@@ -466,7 +472,8 @@ export class CatalogService {
         for (const cand of [title, enTitle, ...searchTitleSet]) {
           if (!cand) continue;
           const base = cand.replace(/\s*\(\d{4}\)\s*$/, '').trim();
-          if (base.length >= 4) rootCandidates.add(base);
+          const minWords = isAnime ? 1 : 2; // En series no-anime exigir >=2 palabras (evita "Chernobyl" -> películas ajenas)
+          if (base.length >= 4 && base.split(/\s+/).length >= minWords) rootCandidates.add(base);
           for (const part of base.split(/\s*[:\-–]\s*/)) {
             if (part.trim().split(/\s+/).length >= 2 || (isAnime && part.trim().length >= 6)) {
               rootCandidates.add(part.trim());
@@ -505,6 +512,8 @@ export class CatalogService {
           .filter((m) => {
             if (!m.poster_path) return false;
             if (!m.release_date || m.release_date > todayIso) return false;
+            const movYear = Number.parseInt(m.release_date.slice(0, 4), 10) || 0;
+            if (!isAnime && year && movYear > 0 && movYear < year) return false;
             if ((m.vote_count || 0) < (isAnime ? 10 : 25)) return false;
             if (!showIsDoc && (m.genre_ids || []).includes(99)) return false;
             if (isAnime && !isAnimeHeuristic({ genreIds: m.genre_ids || [], originalLanguage: m.original_language })) {

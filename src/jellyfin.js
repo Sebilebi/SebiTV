@@ -299,6 +299,15 @@ export class JellyfinClient {
     }
   }
 
+  async deleteItem(jellyfinItemId) {
+    if (!jellyfinItemId) return;
+    try {
+      await this.#request(`/Items/${encodeURIComponent(jellyfinItemId)}`, { method: 'DELETE' });
+    } catch {
+      // Si el token pertenece a un usuario sin permiso de borrado en Jellyfin, el escaneo de carpeta limpia la ficha
+    }
+  }
+
   async getActiveSessions() {
     try {
       return (await this.#request('/Sessions')) || [];

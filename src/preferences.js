@@ -75,9 +75,9 @@ export function inspectReleaseLanguages(rawTitle = '') {
       t
     );
 
-  // En releases AMZN/NF WEB-DL (ej. FLUX/Rapta), Torrentio lista 15-26 banderas de subtítulos sin "Multi Audio" ni "Spa" en el nombre
+  // En releases internacionales en inglés (ej. FLUX/Rapta/REWARD), Torrentio lista 4+ banderas de subtítulos sin "Multi Audio" ni "Spa" en el nombre
   const flagsAreSubtitlesOnly =
-    flagCount >= 10 &&
+    flagCount >= 4 &&
     !/\b(multi[\s._-]*audio|dual[\s._-]*audio)\b/i.test(t) &&
     !hasFilenameSpaAudio &&
     !hasVerifiedCastellano;
