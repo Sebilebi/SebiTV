@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { parseExtSearchHtml, parseNyaaRssXml, parseTorrentioStreams } from '../src/indexers.js';
 import { scoreAndFilterCandidates, selectEpisodeFileFromTorrent } from '../src/scorer.js';
+import { inspectReleaseLanguages } from '../src/preferences.js';
 import { evaluateMediaStreams } from '../src/media.js';
 import { computeSlidingWindowActions } from '../src/engine.js';
 import { SebiDatabase } from '../src/db.js';
@@ -1263,4 +1264,15 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(sxfRanked.length, 1);
   assert.match(sxfRanked[0].title, /Feibanyama/);
+
+  // 23. v1.6.13 (Arcane): etiquetar grupos scene ingleses (-FLUX, -GalaxyTV, -SuccessfulCrab) como 🇬🇧 Inglés en Lupa y descartar ITA-ENG V3SP4EV3R
+  const fluxLang = inspectReleaseLanguages(
+    'Torrentio 1080p — Arcane.S02.COMPLETE.REPACK.1080p.NF.WEB-DL.DDP5.1.Atmos.H.264-FLUX[TGx]'
+  );
+  assert.equal(fluxLang.hasEnglishAudio, true);
+  assert.ok(fluxLang.badges.includes('🇬🇧 Inglés'));
+
+  const itaEngLang = inspectReleaseLanguages('Arcane.S02.720p.ITA-ENG.MULTI.WEBRip.x265.AAC-V3SP4EV3R');
+  assert.equal(itaEngLang.hasMultiSub, false);
+  assert.equal(itaEngLang.hasSpanishSub, false);
 });

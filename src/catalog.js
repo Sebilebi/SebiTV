@@ -356,8 +356,8 @@ export class CatalogService {
     for (const alt of altList) {
       if (['ES', 'US', 'GB', 'JP'].includes(alt.iso_3166_1) && alt.title) {
         if (type === 'tv') {
-          // En series, ignorar subtítulos específicos de arcos/especiales posteriores (ej. "Memories", "Shimetsu Kaiyuu")
-          if (!/[:\-–]/.test(alt.title) && !/\b(memories|more|recap|special)\b/i.test(alt.title)) {
+          // En series, ignorar subtítulos específicos de arcos/especiales posteriores o aftershows (ej. "Memories", "Afterglow")
+          if (!/[:\-–]/.test(alt.title) && !/\b(memories|more|recap|special|afterglow|aftershow)\b/i.test(alt.title)) {
             pushClean(alt.title);
           }
         } else if (alt.title.trim().split(/\s+/).length >= 2) {
@@ -454,7 +454,7 @@ export class CatalogService {
             const epDesc = String(ep.overview || '');
             if (ep.air_date && ep.air_date > todayIso) return false;
             if (
-              /\b(making[\s-]*of|behind\s+the|inside\s+the\s+episode|featurette|cast\s+interview|trailer|teaser|promo\b|preview\b|manner\s+movie|campaign)\b/i.test(
+              /\b(making[\s-]*of|making\s+\w+|behind\s+the|inside\s+the\s+episode|scene\s+breakdown|bridging\s+the\s+rift|afterglow|storyboard|animatic|music\s+video|featurette|cast\s+interview|trailer|teaser|promo\b|preview\b|manner\s+movie|campaign)\b/i.test(
                 `${epName} ${epDesc}`
               )
             ) {

@@ -191,7 +191,9 @@ export function inspectReleaseLanguages(rawTitle = '') {
     !/\b(castellano|spanish|espa[ñn]ol|\bspa\b)\b/i.test(t);
 
   const isOtherNonSpanishMulti =
-    (/\bphdteam\b/i.test(t) || /-(?:afg|msd)(?:\b|\.|\[|\s|\||$)/i.test(t)) &&
+    (/\b(phdteam|v3sp4ev3r)\b/i.test(t) ||
+      /\bita[\s._-]+eng\b/i.test(t) ||
+      /-(?:afg|msd)(?:\b|\.|\[|\s|\||$)/i.test(t)) &&
     !hasEsFlag &&
     !/\b(castellano|spanish|espa[ñn]ol|\bspa\b)\b/i.test(t);
 
@@ -240,7 +242,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
     !hasJpFlag &&
     !hasExplicitCastellano &&
     !hasExplicitLatino &&
-    /\b(yts|yify|galaxyrg\w*|psa|rarbg)\b/i.test(t);
+    (isEnglishSceneWebDl || /\b(yts|yify|galaxyrg\w*|galaxytv|psa|rarbg|qxr|vyndros|tigole|rmteam|megusta|ezx)\b/i.test(t));
 
   const hasEnglishAudio =
     !isMultiSubWithoutMultiAudio &&

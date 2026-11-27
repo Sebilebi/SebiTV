@@ -130,9 +130,37 @@ export class SebiEngine {
    * Registra una película, serie o anime en SebiTV y (si es serie/anime) crea su esqueleto
    * virtual en Jellyfin para que salgan todas las temporadas, capítulos y OVAs SIN botón Play.
    */
+  #assertSafeFileSizeAndDisk(fileBytes, { isEpisode = false, manual = false } = {}) {
+    const size = Number(fileBytes || 0);
+    if (size <= 0) return;
+
+    // En episodios de series automáticos (no elegidos manualmente en Lupa), evitar que un único capítulo BDRemux > 20 GB
+    // ocupe > 60-85 GB al sumar la ventana deslizante [N-1, N, N+1] sobre el disco de 120 GB.
+    if (isEpisode && !manual && size > 20 * 1024 ** 3) {
+      const gb = (size / 1024 ** 3).toFixed(1);
+      throw new Error(
+        `Capítulo BDRemux demasiado pesado (${gb} GB para un solo episodio). Usa la Lupa 🔍 si deseas descargarlo manualmente.`
+      );
+    }
+
+    try {
+      const st = fs.statfsSync(this.getConfig().mediaRoot);
+      const freeBytes = Number(st.bsize) * Number(st.bavail);
+      if (freeBytes > 0 && freeBytes - size < 14 * 1024 ** 3) {
+        const gb = (size / 1024 ** 3).toFixed(1);
+        const freeGb = (freeBytes / 1024 ** 3).toFixed(1);
+        throw new Error(
+          `Espacio insuficiente para descargar ${gb} GB con margen seguro (${freeGb} GB libres). Usa la Lupa 🔍 para elegir una versión más ligera.`
+        );
+      }
+    } catch (err) {
+      if (err.message.startsWith('Espacio insuficiente')) throw err;
+    }
+  }
+
   async ensureRegistered(mediaType, tmdbId, { forceRefresh = false } = {}) {
     const existing = this.db.getCatalogItemByTmdb(Number(tmdbId), mediaType);
-    const needsSchemaUpgrade = existing && Number(existing.catalog_schema_ver || 1) < 4;
+    const needsSchemaUpgrade = existing && Number(existing.catalog_schema_ver || 1) < 5;
     if (existing && !forceRefresh && !needsSchemaUpgrade) {
       if (!existing.jellyfin_id) {
         const jf = await this.jellyfin.findItemByTmdb(existing.tmdb_id, existing.media_type);
@@ -342,10 +370,11 @@ export class SebiEngine {
       if (origTitle !== esTitle) {
         tasks.push(this.indexers.searchExt({ query: `${origTitle} S${s2}E${e2} Castellano`, category: 2 }));
         tasks.push(this.indexers.searchKnaben(`${origTitle} S${s2}E${e2} Castellano`));
-        if (allLanguages) {
-          tasks.push(this.indexers.searchKnaben(`${origTitle} S${s2}E${e2}`));
-        }
       }
+      if (allLanguages) {
+        tasks.push(this.indexers.searchKnaben(`${origTitle} S${s2}E${e2}`));
+      }
+      tasks.push(this.indexers.searchKnaben(`${origTitle} S${s2} MULTi`));
       tasks.push(this.indexers.searchKnaben(`${esTitle} S${s2}E${e2} Castellano`));
       tasks.push(this.indexers.searchKnaben(`${esTitle} ${ep.season_number}x${e2} Castellano`));
       tasks.push(this.indexers.searchKnaben(`${esTitle} S${s2} Castellano`));
@@ -778,6 +807,16 @@ export class SebiEngine {
           }
         }
 
+        try {
+          this.#assertSafeFileSizeAndDisk(targetFile.size, {
+            isEpisode: true,
+            manual: Boolean(manualCandidate),
+          });
+        } catch (sizeErr) {
+          await this.qbit.deleteTorrent(hash, true);
+          throw sizeErr;
+        }
+
         const isPack = files.filter((f) => /\.(mkv|mp4|avi|webm|m4v|ts)$/i.test(f.name)).length > 1;
 
         this.db.updateEpisodeState(ep.id, {
@@ -958,6 +997,16 @@ export class SebiEngine {
               throw new Error(`Película descartada por idioma no Castellano (${movieFile.name}).`);
             }
           }
+        }
+
+        try {
+          this.#assertSafeFileSizeAndDisk(movieFile.size, {
+            isEpisode: false,
+            manual: Boolean(manualCandidate),
+          });
+        } catch (sizeErr) {
+          await this.qbit.deleteTorrent(hash, true);
+          throw sizeErr;
         }
 
         await this.qbit.selectOnlyNeededFiles(
