@@ -735,7 +735,15 @@ export function scoreAndFilterCandidates(candidates, context) {
     score += Math.round(Math.log2((cand.seeders || 1) + 1) * 36);
 
     if (isPack && !Number.isInteger(cand.hintFileIndex)) score -= 35;
-    if (!isPack && mediaType === 'tv' && cand.sizeBytes > (wants4k ? 16 : 6) * 1024 ** 3) score -= 120;
+    if (mediaType === 'tv') {
+      const isTvRemux = /\b(bdremux|uhdremux|remux|fullbluray|bd50|bd25)\b/i.test(title);
+      const isSingleEpSize = !isPack || Number.isInteger(cand.hintFileIndex);
+      if (isTvRemux || (isSingleEpSize && cand.sizeBytes > 12 * 1024 ** 3)) {
+        score -= 320; // Evitar que un único capítulo BDRemux de 25-35 GB llene los 120 GB con la ventana [N-1, N, N+1]
+      } else if (isSingleEpSize && cand.sizeBytes > (wants4k ? 9.5 : 5.5) * 1024 ** 3) {
+        score -= 120;
+      }
+    }
     if (mediaType === 'movie') {
       const isRemux = /\b(bdremux|uhdremux|remux|fullbluray|bd50|bd25)\b/i.test(title);
       if (wants4k) {

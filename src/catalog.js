@@ -557,6 +557,13 @@ export class CatalogService {
             if (!isAnime && year && movYear > 0 && movYear < year) return false;
             if ((m.vote_count || 0) < (isAnime ? 10 : 25)) return false;
             if (!showIsDoc && (m.genre_ids || []).includes(99)) return false;
+            if (
+              /\b(fireplace|chimenea|yule\s+log|making[\s-]*of|behind\s+the\s+scenes|recap|resumen)\b/i.test(
+                `${m.title || ''} ${m.original_title || ''}`
+              )
+            ) {
+              return false;
+            }
             if (isAnime && !isAnimeHeuristic({ genreIds: m.genre_ids || [], originalLanguage: m.original_language })) {
               return false;
             }

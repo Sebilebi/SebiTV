@@ -1053,4 +1053,42 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(mobS2Ranked.length, 1);
   assert.match(mobS2Ranked[0].title, /Mob Psycho 100 II - 05/);
+
+  // 15. v1.6.5 (Hallazgos Stranger Things):
+  //     a) En series con "Mejor resolución posible" ('best'), penaliza capítulos BDRemux gigantes (30 GB por episodio) frente a 1080p Castellano (2.3 GB);
+  //     b) Excluye packs centroeuropeos "PHDTeam ... Multi 6 lang" y grupos "-AFG"/"-mSD" sin español.
+  const stS3Pool = [
+    {
+      source: 'imdb:ThePirateBay',
+      matchedExactImdbEpisode: true,
+      hintFileIndex: 4,
+      title: 'Torrentio 4k — Stranger Things S03 2160p UHD BluRay BDRemux HEVC Castellano | S03E05.mkv | 👤 17 💾 30.18 GB ⚙️ ThePirateBay | 🇪🇸',
+      seeders: 17,
+      sizeBytes: 30.18e9,
+    },
+    {
+      source: 'imdb:MejorTorrent',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Stranger Things - Temporada 3 [HDTV 1080p][Cap.305][Castellano] | 👤 18 💾 2.32 GB ⚙️ MejorTorrent | 🇪🇸',
+      seeders: 18,
+      sizeBytes: 2.32e9,
+    },
+    {
+      source: 'imdb:TorrentGalaxy',
+      matchedExactImdbEpisode: true,
+      title: 'Torrentio 1080p — Stranger Things S03 1080p Multi 6 lang-PHDTeam | S03E05.mkv | 👤 12 💾 790 MB ⚙️ TorrentGalaxy',
+      seeders: 12,
+      sizeBytes: 790e6,
+    },
+  ];
+  const stRanked = scoreAndFilterCandidates(stS3Pool, {
+    isAnime: false,
+    mediaType: 'tv',
+    acceptedTitles: ['Stranger Things'],
+    seasonNumber: 3,
+    episodeNumber: 5,
+    preferences: { regular: { videoQuality: 'best', allowQualityFallback: true } },
+  });
+  assert.equal(stRanked.length, 2); // PHDTeam descartado
+  assert.match(stRanked[0].source, /MejorTorrent/); // 2.32 GB 1080p gana sobre el BDRemux de 30.18 GB por episodio
 });

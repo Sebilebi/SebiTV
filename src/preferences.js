@@ -189,19 +189,32 @@ export function inspectReleaseLanguages(rawTitle = '') {
     !hasEsFlag &&
     !/\b(castellano|spanish|espa[ñn]ol|\bspa\b)\b/i.test(t);
 
+  const isOtherNonSpanishMulti =
+    (/\bphdteam\b/i.test(t) || /-(?:afg|msd)(?:\b|\.|\[|\s|\||$)/i.test(t)) &&
+    !hasEsFlag &&
+    !/\b(castellano|spanish|espa[ñn]ol|\bspa\b)\b/i.test(t);
+
   const isCrunchyrollImplicitSub =
     !isFrenchOnlyMulti &&
+    !isOtherNonSpanishMulti &&
     !/\b(eng(?:lish)?[\s._-]*subs?(?:[\s._-]*only)?|dubbed[\s._-]*only)\b/i.test(t) &&
     /\bcr[\s._-]*(?:web-?dl|webrip)\b/i.test(t) &&
     !/\b(erai-raws|toonshub|nandesuka|multisub|multi-subs|multi[\s._-]*subs?|multiple[\s._-]*subtitle)\b/i.test(t);
 
   const hasMultiSub =
-    (flagsAreSubtitlesOnly && hasEsFlag) ||
-    isCrunchyrollImplicitSub ||
-    /\b(erai-raws|toonshub|nandesuka|multisub|multi-subs|multi[\s._-]*subs?|multiple[\s._-]*subtitle|multi[\s._-]*language)\b/i.test(
-      t
-    ) ||
-    (!isFrenchOnlyMulti && /(?<![-\w])multi(?![-\w])/i.test(t));
+    !isOtherNonSpanishMulti &&
+    ((flagsAreSubtitlesOnly && hasEsFlag) ||
+      isCrunchyrollImplicitSub ||
+      /\b(erai-raws|toonshub|nandesuka|multisub|multi-subs|multi[\s._-]*subs?|multiple[\s._-]*subtitle|multi[\s._-]*language)\b/i.test(
+        t
+      ) ||
+      (!isFrenchOnlyMulti && /(?<![-\w])multi(?![-\w])/i.test(t)));
+
+  const hasVerifiedSpanishInMultiSub =
+    hasMultiSub &&
+    (hasEsFlag ||
+      isCrunchyrollImplicitSub ||
+      /\b(erai-raws|toonshub|judas|nandesuka|\bspa\b|\besp\b|spanish|castellano|espa[ñn]ol)\b/i.test(t));
 
   const hasSpanishSub =
     hasMultiSub ||
@@ -242,7 +255,7 @@ export function inspectReleaseLanguages(rawTitle = '') {
     if (hasRuFlag || /\b(\brus\b|russian)\b/i.test(t)) badges.push('🇷🇺 Ruso');
   }
 
-  if (hasMultiSub) badges.push('💬 MultiSub (incl. ES)');
+  if (hasMultiSub) badges.push(hasVerifiedSpanishInMultiSub ? '💬 MultiSub (incl. ES)' : '💬 MultiSub');
   else if (hasSpanishSub) badges.push('💬 Sub Español');
   else if (hasEnglishSub) badges.push('💬 Sub Inglés');
 

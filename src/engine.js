@@ -1031,9 +1031,10 @@ export class SebiEngine {
       const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
       const stallKey = `ep:${ep.id}:${ep.torrent_hash}`;
       const dlSpeed = tor.dlspeed || 0;
-      const isDeadStalled = !isSeedingState && rawProg < 0.998 && dlSpeed < 15 * 1024;
+      const isDeadStalled = !isSeedingState && rawProg < 0.998 && (tor.state === 'stalledDL' || dlSpeed < 15 * 1024);
       const isSlowCrawl =
         !isSeedingState &&
+        !isDeadStalled &&
         !ep.manual_override &&
         !this.noAltSlowKeys.has(stallKey) &&
         rawProg < 0.45 &&
@@ -1060,7 +1061,7 @@ export class SebiEngine {
         continue;
       }
 
-      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 35000 : 55000) : 60000;
+      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 28000 : 38000) : 55000;
       if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
         this.stalledTracker.delete(stallKey);
         // Si no está muerto del todo (avanza lento a 15-160 KB/s), comprobar primero si existe otro candidato alternativo antes de abortarlo
@@ -1129,9 +1130,10 @@ export class SebiEngine {
       const isSeedingState = ['uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'checkingUP'].includes(tor.state);
       const stallKey = `mov:${movie.id}:${movie.torrent_hash}`;
       const dlSpeed = tor.dlspeed || 0;
-      const isDeadStalled = !isSeedingState && rawProg < 0.998 && dlSpeed < 15 * 1024;
+      const isDeadStalled = !isSeedingState && rawProg < 0.998 && (tor.state === 'stalledDL' || dlSpeed < 15 * 1024);
       const isSlowCrawl =
         !isSeedingState &&
+        !isDeadStalled &&
         !movie.manual_override &&
         !this.noAltSlowKeys.has(stallKey) &&
         rawProg < 0.45 &&
@@ -1157,7 +1159,7 @@ export class SebiEngine {
         continue;
       }
 
-      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 35000 : 55000) : 60000;
+      const stallThresholdMs = isDeadStalled ? (rawProg < 0.01 ? 28000 : 38000) : 55000;
       if (stalledElapsedMs >= stallThresholdMs && rawProg < 0.998) {
         this.stalledTracker.delete(stallKey);
         if (!isDeadStalled) {
