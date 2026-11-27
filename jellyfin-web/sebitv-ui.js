@@ -1708,9 +1708,11 @@
     if (!idMatch) return;
     const jellyfinId = idMatch[1];
 
-    const detailContainer = document.querySelector(
-      '#itemDetailPage:not(.hide) .detailPageContent, .itemDetailPage:not(.hide) .detailPagePrimaryContent'
-    );
+    const detailContainer = [
+      ...document.querySelectorAll(
+        '#itemDetailPage:not(.hide) .detailPageContent, .itemDetailPage:not(.hide) .detailPagePrimaryContent'
+      ),
+    ].find((el) => el.offsetParent !== null);
     if (!detailContainer) return;
 
     const existingBanner = detailContainer.querySelector('.sebitv-native-banner');
@@ -1876,11 +1878,14 @@
             true
           );
         }
-      } else if (prevCount > 0 && count === 0) {
-        // Acaba de terminar una descarga mientras el usuario mira una página nativa de Jellyfin -> refrescar vista
+      } else {
         const hash = window.location.hash || '';
         if (hash.includes('/details')) {
-          window.location.reload();
+          if (prevCount > 0 && count === 0) {
+            window.location.reload();
+          } else {
+            injectNativeDetailPageControls();
+          }
         }
       }
     } catch {

@@ -303,7 +303,7 @@ export function classifyEpisodeMatch(
     if (dashNum) {
       return { matched: true, isPack: /\b(ovas|specials|batch|complete)\b/i.test(releaseTitle), exactOvaMatch: true };
     }
-    if (episodeNumber === 1) {
+    if (episodeNumber === 1 && !/\b(mini|short|picture\s+drama)\b/i.test(episodeTitle)) {
       return { matched: true, isPack: /\b(ovas|specials|batch|complete)\b/i.test(releaseTitle), exactOvaMatch: false };
     }
     return { matched: false, isPack: false };
@@ -809,6 +809,22 @@ export function selectEpisodeFileFromTorrent(
   for (const re of patterns) {
     const found = videoFiles.find((f) => re.test(f.name));
     if (found) return found;
+  }
+
+  // En Temporada 0 (OVAs / Especiales / Extras): buscar dentro de subcarpetas Extras/Specials/OVAs sin confundir con capítulos regulares
+  if (seasonNumber === 0) {
+    const specialFiles = videoFiles.filter((f) =>
+      /(?:^|\/)(?:extras?|specials?|ovas?|oads?)\/|\b(?:ova|oad|special|mini|sp)\b/i.test(f.name)
+    );
+    const s0Patterns = [
+      new RegExp(`s0*[01][\\s._-]*e0*${episodeNumber}(?!\\d)`, 'i'),
+      new RegExp(`(?:ova|oad|special|mini|sp|-)[\\s._-]*0*${episodeNumber}(?!\\d)`, 'i'),
+    ];
+    for (const re of s0Patterns) {
+      const found = specialFiles.find((f) => re.test(f.name));
+      if (found) return found;
+    }
+    return specialFiles.length === 1 && episodeNumber === 1 ? specialFiles[0] : null;
   }
 
   const seasonMarkerRe = new RegExp(

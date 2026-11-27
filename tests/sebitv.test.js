@@ -1091,4 +1091,17 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   });
   assert.equal(stRanked.length, 2); // PHDTeam descartado
   assert.match(stRanked[0].source, /MejorTorrent/); // 2.32 GB 1080p gana sobre el BDRemux de 30.18 GB por episodio
+
+  // 16. v1.6.6 (Hallazgo Mob Psycho 100 Season 0): localiza archivos en subcarpeta Extras/ ("Extras/[Judas] Mob Psycho Mini - S01E01.mkv") sin confundirlos con el S01E01 principal
+  const mobExtrasPack = [
+    { index: 0, name: '[Judas] Mob Psycho 100/[Judas] Mob Psycho 100 - S01E01.mkv', size: 320e6 },
+    { index: 12, name: '[Judas] Mob Psycho 100/Extras/[Judas] Mob Psycho Mini - S01E01.mkv', size: 45e6 },
+  ];
+  const pickedMini = selectEpisodeFileFromTorrent(mobExtrasPack, {
+    seasonNumber: 0,
+    episodeNumber: 1,
+    isAnime: true,
+  });
+  assert.ok(pickedMini);
+  assert.equal(pickedMini.index, 12);
 });

@@ -234,9 +234,16 @@ export function inspectReleaseLanguages(rawTitle = '') {
     hasJpFlag ||
     /\b(japanese|japon[eé]s|\bjpn\b|\bjap\b|erai-raws|subsplease|toonshub)\b/i.test(t);
 
+  const isKnownEnglishGroup =
+    !hasEsFlag &&
+    !hasJpFlag &&
+    !hasExplicitCastellano &&
+    !hasExplicitLatino &&
+    /\b(yts|yify|galaxyrg\w*|psa|rarbg)\b/i.test(t);
+
   const hasEnglishAudio =
     !isMultiSubWithoutMultiAudio &&
-    (hasGbFlag || hasEngDubOnly || /\b(english|\beng\b|truehd\s+eng|eac3.*eng)\b/i.test(t));
+    (hasGbFlag || hasEngDubOnly || isKnownEnglishGroup || /\b(english|\beng\b|truehd\s+eng|eac3.*eng)\b/i.test(t));
 
   const hasEnglishSub =
     hasMultiSub || /\b(subsplease|eng(?:lish)?[\s._-]*subs?|sub[\s._-]*eng|es-en)\b/i.test(t);
