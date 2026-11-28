@@ -212,65 +212,58 @@
     // 1A. Menú desplegable MUI de Perfil arriba a la derecha (Perfil -> Ajustes -> SebiTV)
     const menus = document.querySelectorAll('ul.MuiMenu-list[role="menu"], ul[role="menu"]');
     for (const menuList of menus) {
+      if (menuList.querySelector('#sebitv-profile-menu-item')) continue;
+
       const settingsItem = menuList.querySelector('a[href*="mypreferencesmenu"]');
       const profileItem = menuList.querySelector('a[href*="userprofile"]');
       if (!settingsItem && !profileItem) continue;
 
-      let existing = menuList.querySelector('#sebitv-profile-menu-item');
-      if (!existing) {
-        const anchorRef = settingsItem || profileItem;
-        const sebitvItem = anchorRef.cloneNode(true);
-        sebitvItem.id = 'sebitv-profile-menu-item';
-        sebitvItem.removeAttribute('href');
-        sebitvItem.setAttribute('tabindex', '-1');
-        sebitvItem.style.cursor = 'pointer';
+      const anchorRef = settingsItem || profileItem;
+      const sebitvItem = anchorRef.cloneNode(true);
+      sebitvItem.id = 'sebitv-profile-menu-item';
+      sebitvItem.removeAttribute('href');
+      sebitvItem.setAttribute('tabindex', '-1');
+      sebitvItem.style.cursor = 'pointer';
 
-        const svgPath = sebitvItem.querySelector('svg path');
-        if (svgPath) {
-          svgPath.setAttribute('d', SVG_PATHS.sebitv);
-        }
-        const svgEl = sebitvItem.querySelector('svg');
-        if (svgEl) {
-          svgEl.setAttribute('data-testid', 'SebiTvIcon');
-        }
-
-        const labelEl =
-          sebitvItem.querySelector('.MuiListItemText-primary') ||
-          sebitvItem.querySelector('.MuiListItemText-root span') ||
-          sebitvItem.querySelector('span');
-        if (labelEl) {
-          labelEl.textContent = 'SebiTV';
-        }
-
-        const badgeWrap = document.createElement('span');
-        badgeWrap.className = 'sebitv-profile-dl-badge';
-        badgeWrap.innerHTML = `<span class="sebitv-badge-count" data-sebi-dl-badge="1" style="display:${
-          state.activeDownloadsCount > 0 ? 'inline-flex' : 'none'
-        }">${state.activeDownloadsCount}</span>`;
-        sebitvItem.appendChild(badgeWrap);
-
-        sebitvItem.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          const pop = sebitvItem.closest('.MuiPopover-root, .MuiModal-root');
-          const backdrop = pop?.querySelector('.MuiBackdrop-root');
-          if (backdrop) {
-            backdrop.click();
-          } else {
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-          }
-          openOverlay('discover');
-        });
-
-        // Insertar exactamente como 3ª opción justo debajo de "Ajustes"
-        anchorRef.insertAdjacentElement('afterend', sebitvItem);
-      } else {
-        const b = existing.querySelector('[data-sebi-dl-badge="1"]');
-        if (b) {
-          b.style.display = state.activeDownloadsCount > 0 ? 'inline-flex' : 'none';
-          b.textContent = String(state.activeDownloadsCount);
-        }
+      const svgPath = sebitvItem.querySelector('svg path');
+      if (svgPath) {
+        svgPath.setAttribute('d', SVG_PATHS.sebitv);
       }
+      const svgEl = sebitvItem.querySelector('svg');
+      if (svgEl) {
+        svgEl.setAttribute('data-testid', 'SebiTvIcon');
+      }
+
+      const labelEl =
+        sebitvItem.querySelector('.MuiListItemText-primary') ||
+        sebitvItem.querySelector('.MuiListItemText-root span') ||
+        sebitvItem.querySelector('span');
+      if (labelEl) {
+        labelEl.textContent = 'SebiTV';
+      }
+
+      const badgeWrap = document.createElement('span');
+      badgeWrap.className = 'sebitv-profile-dl-badge';
+      badgeWrap.innerHTML = `<span class="sebitv-badge-count" data-sebi-dl-badge="1" style="display:${
+        state.activeDownloadsCount > 0 ? 'inline-flex' : 'none'
+      }">${state.activeDownloadsCount}</span>`;
+      sebitvItem.appendChild(badgeWrap);
+
+      sebitvItem.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const pop = sebitvItem.closest('.MuiPopover-root, .MuiModal-root');
+        const backdrop = pop?.querySelector('.MuiBackdrop-root');
+        if (backdrop) {
+          backdrop.click();
+        } else {
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        }
+        openOverlay('discover');
+      });
+
+      // Insertar exactamente como 3ª opción justo debajo de "Ajustes"
+      anchorRef.insertAdjacentElement('afterend', sebitvItem);
     }
   }
 
@@ -2057,9 +2050,11 @@
       const prevCount = state.activeDownloadsCount;
       state.activeDownloadsCount = count;
 
+      const nextText = String(count);
+      const nextDisp = count > 0 ? 'inline-flex' : 'none';
       document.querySelectorAll('[data-sebi-dl-badge="1"]').forEach((badge) => {
-        badge.style.display = count > 0 ? 'inline-flex' : 'none';
-        badge.textContent = String(count);
+        if (badge.style.display !== nextDisp) badge.style.display = nextDisp;
+        if (badge.textContent !== nextText) badge.textContent = nextText;
       });
 
       if (state.overlayOpen) {
@@ -2114,21 +2109,26 @@
   document.addEventListener('emptied', () => setTimeout(syncHudVisibility, 80), true);
   document.addEventListener('ended', () => setTimeout(syncHudVisibility, 80), true);
 
+  let domSyncRaf = 0;
   const observer = new MutationObserver(() => {
-    injectProfileMenuOption();
-    syncHudVisibility();
-    if (window.location.hash !== state.lastHash) {
-      state.lastHash = window.location.hash;
-      setTimeout(onRouteOrDomChange, 280);
-    }
-    hookNativeJellyfinSearch();
+    if (domSyncRaf) return;
+    domSyncRaf = window.requestAnimationFrame(() => {
+      domSyncRaf = 0;
+      injectProfileMenuOption();
+      syncHudVisibility();
+      if (window.location.hash !== state.lastHash) {
+        state.lastHash = window.location.hash;
+        setTimeout(onRouteOrDomChange, 280);
+      }
+      hookNativeJellyfinSearch();
+    });
   });
 
   function boot() {
     injectProfileMenuOption();
     syncBrowserJellyfinToken();
     setTimeout(onRouteOrDomChange, 800);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    observer.observe(document.body, { childList: true, subtree: true });
     state.pollTimer = setInterval(backgroundPoll, 3500);
     backgroundPoll();
   }
