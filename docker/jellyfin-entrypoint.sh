@@ -17,7 +17,12 @@ cp "${PLUGIN_DIR}/sebitv-ui.js" "${DST_WEB}/sebitv-ui.js"
 cat << 'EOF' > "${DST_WEB}/sebitv-loader.js"
 (function () {
   var cfg = window.SEBITV_CONFIG || {};
-  var base = cfg.publicUrl ? cfg.publicUrl.replace(/\/+$/, '') : (window.location.protocol + '//' + window.location.hostname + ':' + (cfg.port || '8099'));
+  var isDefaultPort = !window.location.port || window.location.port === '80' || window.location.port === '443';
+  var base = cfg.publicUrl
+    ? cfg.publicUrl.replace(/\/+$/, '')
+    : isDefaultPort
+      ? window.location.origin
+      : (window.location.protocol + '//' + window.location.hostname + ':' + (cfg.port || '8099'));
   var ts = Date.now();
   var link = document.createElement('link');
   link.rel = 'stylesheet';

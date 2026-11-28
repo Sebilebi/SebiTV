@@ -11,26 +11,46 @@ export class JellyfinClient {
   }
 
   async saveBrowserToken(accessToken, userId = '') {
-    if (!accessToken) return false;
+    if (!accessToken) return { ok: false, isAdmin: false };
     try {
       const cfg = this.getConfig();
-      const verifyRes = await fetch(`${cfg.jellyfinUrl}/System/Info`, {
-        headers: {
-          Accept: 'application/json',
-          Authorization: this.#authHeader(accessToken),
-          'X-Emby-Authorization': this.#authHeader(accessToken),
-          'X-Emby-Token': accessToken,
-        },
+      const headers = {
+        Accept: 'application/json',
+        Authorization: this.#authHeader(accessToken),
+        'X-Emby-Authorization': this.#authHeader(accessToken),
+        'X-Emby-Token': accessToken,
+      };
+
+      // Verificar identidad y si la sesión del navegador pertenece a un Administrador de Jellyfin
+      let isAdmin = null;
+      const userEndpoint = userId ? `/Users/${encodeURIComponent(userId)}` : '/Users/Me';
+      const userRes = await fetch(`${cfg.jellyfinUrl}${userEndpoint}`, {
+        headers,
         signal: AbortSignal.timeout(6000),
-      });
-      if (!verifyRes.ok) return false;
-      this.db.setSetting('jellyfinAccessToken', accessToken);
-      if (userId) this.db.setSetting('jellyfinUserId', userId);
-      this.bootstrapped = false;
-      await this.ensureBootstrap();
-      return true;
+      }).catch(() => null);
+
+      if (userRes?.ok) {
+        const userObj = await userRes.json().catch(() => null);
+        isAdmin = Boolean(userObj?.Policy?.IsAdministrator);
+      } else {
+        const verifyRes = await fetch(`${cfg.jellyfinUrl}/System/Info`, {
+          headers,
+          signal: AbortSignal.timeout(6000),
+        });
+        if (!verifyRes.ok) return { ok: false, isAdmin: false };
+        isAdmin = true;
+      }
+
+      // Solo sobrescribir el token maestro del motor si el usuario es Administrador (nunca con cuentas de amigos)
+      if (isAdmin) {
+        this.db.setSetting('jellyfinAccessToken', accessToken);
+        if (userId) this.db.setSetting('jellyfinUserId', userId);
+        this.bootstrapped = false;
+        await this.ensureBootstrap();
+      }
+      return { ok: true, isAdmin };
     } catch {
-      return false;
+      return { ok: false, isAdmin: false };
     }
   }
 

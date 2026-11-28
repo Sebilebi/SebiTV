@@ -1343,3 +1343,215 @@ test('v1.5.0: Anime multitemporada (S01 vs Final Season/Vigilantes/4th Season), 
   );
   assert.equal(wolfTypo.hasVerifiedCastellano, true);
 });
+
+test('Guardián Zero-Trust Authentik: devuelve 404 fantasma (0 bytes) a no invitados/sin permiso y enruta Jellyfin a invitados autorizados', async () => {
+  const httpMod = await import('node:http');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sebitv-gate-test-'));
+
+  // 1. Mock Jellyfin interno (:8096) y Mock Authentik (:9000)
+  let mockIdpState = { loggedIn: false, groups: [] };
+  const mockJellyfin = httpMod.createServer((req, res) => {
+    if (req.url === '/System/Info/Public') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ServerName: 'SebiTV-Mock', Version: '12.4.0' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<html><body>JELLYFIN_HOME_OK</body></html>');
+  });
+
+  const mockAuthentik = httpMod.createServer((req, res) => {
+    const u = new URL(req.url, 'http://localhost');
+    if (u.pathname === '/application/o/token/' && req.method === 'POST') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ access_token: 'ak-test-token', token_type: 'Bearer' }));
+      return;
+    }
+    if (u.pathname === '/application/o/userinfo/') {
+      if (!mockIdpState.loggedIn) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'revoked' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          sub: 'user-pedro',
+          preferred_username: 'Pedro',
+          groups: mockIdpState.groups,
+        })
+      );
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise((r) => mockJellyfin.listen(0, '127.0.0.1', r));
+  await new Promise((r) => mockAuthentik.listen(0, '127.0.0.1', r));
+  const jfPort = mockJellyfin.address().port;
+  const akPort = mockAuthentik.address().port;
+
+  const prevDataDir = process.env.DATA_DIR;
+  const prevMediaRoot = process.env.MEDIA_ROOT;
+  const prevJfUrl = process.env.JELLYFIN_URL;
+  const prevReverify = process.env.AUTHENTIK_REVERIFY_SECONDS;
+  process.env.DATA_DIR = path.join(tmpDir, 'config');
+  process.env.MEDIA_ROOT = path.join(tmpDir, 'library');
+  process.env.JELLYFIN_URL = `http://127.0.0.1:${jfPort}`;
+  process.env.AUTHENTIK_REVERIFY_SECONDS = '0';
+  fs.mkdirSync(process.env.DATA_DIR, { recursive: true });
+  fs.mkdirSync(process.env.MEDIA_ROOT, { recursive: true });
+
+  const app = createSebiApp();
+  await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
+  const sebiPort = app.server.address().port;
+
+  const rawReq = (urlPath, headers = {}) =>
+    new Promise((resolve, reject) => {
+      const req = httpMod.request(
+        { hostname: '127.0.0.1', port: sebiPort, path: urlPath, method: 'GET', headers },
+        (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () =>
+            resolve({
+              status: res.statusCode,
+              headers: res.headers,
+              body: Buffer.concat(chunks).toString('utf8'),
+            })
+          );
+        }
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+  try {
+    // A. En LAN (127.0.0.1 sin cabeceras externas), /api/health responde 200 normal
+    const lanHealth = await rawReq('/api/health', { Host: `127.0.0.1:${sebiPort}` });
+    assert.equal(lanHealth.status, 200);
+
+    // B. Desde dominio externo (sebitv.sebilebi.dev) sin Authentik configurado -> 404 vacío (0 bytes) incluso en /api/health
+    const extUnconf = await rawReq('/api/health', {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+    });
+    assert.equal(extUnconf.status, 404);
+    assert.equal(extUnconf.body, '');
+
+    // Configurar Authentik OIDC en DB
+    app.db.setSetting('authentikClientId', 'sebitv-client');
+    app.db.setSetting('authentikAuthorizeUrl', 'https://auth.sebilebi.dev/application/o/authorize/');
+    app.db.setSetting('authentikInternalUrl', `http://127.0.0.1:${akPort}`);
+    app.db.setSetting('authentikRequiredGroup', 'sebitv');
+
+    // C. Visitante no invitado en navegador HTML -> redirige con prompt=none; cuando Authentik devuelve login_required -> termina en 404 vacío
+    const step1 = await rawReq('/', {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      'X-Forwarded-Proto': 'https',
+      Accept: 'text/html',
+    });
+    assert.equal(step1.status, 302);
+    assert.match(step1.headers.location, /prompt=none/);
+    const authRedirectUrl = new URL(step1.headers.location);
+    const stateVal = authRedirectUrl.searchParams.get('state');
+    const stateCookie = step1.headers['set-cookie'][0].split(';')[0];
+
+    const cbDenied = await rawReq(`/_sebitv_auth/callback?error=login_required&state=${encodeURIComponent(stateVal)}`, {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      'X-Forwarded-Proto': 'https',
+      Cookie: stateCookie,
+    });
+    assert.equal(cbDenied.status, 302);
+    const nxCookie = cbDenied.headers['set-cookie'].find((c) => c.startsWith('__sebitv_nx=1')).split(';')[0];
+
+    const deadPage = await rawReq('/', {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      Accept: 'text/html',
+      Cookie: nxCookie,
+    });
+    assert.equal(deadPage.status, 404);
+    assert.equal(deadPage.body, '');
+
+    // D. Usuario invitado en Authentik PERO sin el rol/grupo "sebitv" -> denegado con 404 vacío
+    mockIdpState = { loggedIn: true, groups: ['asta'] };
+    const stepNoGrp = await rawReq('/', {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      'X-Forwarded-Proto': 'https',
+      Accept: 'text/html',
+    });
+    const st2 = new URL(stepNoGrp.headers.location).searchParams.get('state');
+    const stCookie2 = stepNoGrp.headers['set-cookie'][0].split(';')[0];
+    const cbNoGrp = await rawReq(`/_sebitv_auth/callback?code=valid-code&state=${encodeURIComponent(st2)}`, {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      'X-Forwarded-Proto': 'https',
+      Cookie: stCookie2,
+    });
+    assert.equal(cbNoGrp.status, 302);
+    assert.ok(cbNoGrp.headers['set-cookie'].some((c) => c.startsWith('__sebitv_nx=1')));
+
+    // E. Usuario invitado CON el grupo "sebitv" -> entra a Jellyfin y a la API de SebiTV bajo el mismo dominio
+    mockIdpState = { loggedIn: true, groups: ['asta', 'SebiTV'] };
+    const stepOk = await rawReq('/', {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      'X-Forwarded-Proto': 'https',
+      Accept: 'text/html',
+    });
+    const st3 = new URL(stepOk.headers.location).searchParams.get('state');
+    const stCookie3 = stepOk.headers['set-cookie'][0].split(';')[0];
+    const cbOk = await rawReq(`/_sebitv_auth/callback?code=valid-code&state=${encodeURIComponent(st3)}`, {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      'X-Forwarded-Proto': 'https',
+      Cookie: stCookie3,
+    });
+    assert.equal(cbOk.status, 302);
+    const sessCookie = cbOk.headers['set-cookie'].find((c) => c.startsWith('__sebitv_sess=')).split(';')[0];
+
+    const jfHome = await rawReq('/', {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      Cookie: sessCookie,
+    });
+    assert.equal(jfHome.status, 200);
+    assert.match(jfHome.body, /JELLYFIN_HOME_OK/);
+
+    const extApiHealth = await rawReq('/api/health', {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      Cookie: sessCookie,
+    });
+    assert.equal(extApiHealth.status, 200);
+
+    // F. Si Sebilebi le quita el permiso "sebitv" en Authentik -> la siguiente petición vuelve a dar 404 vacío al instante
+    mockIdpState = { loggedIn: true, groups: ['asta'] };
+    const afterRevoke = await rawReq('/', {
+      Host: 'sebitv.sebilebi.dev',
+      'CF-Connecting-IP': '88.1.2.3',
+      Cookie: sessCookie,
+    });
+    assert.equal(afterRevoke.status, 404);
+    assert.equal(afterRevoke.body, '');
+  } finally {
+    app.server.close();
+    app.db.close();
+    mockJellyfin.close();
+    mockAuthentik.close();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = prevDataDir;
+    if (prevMediaRoot === undefined) delete process.env.MEDIA_ROOT;
+    else process.env.MEDIA_ROOT = prevMediaRoot;
+    if (prevJfUrl === undefined) delete process.env.JELLYFIN_URL;
+    else process.env.JELLYFIN_URL = prevJfUrl;
+    if (prevReverify === undefined) delete process.env.AUTHENTIK_REVERIFY_SECONDS;
+    else process.env.AUTHENTIK_REVERIFY_SECONDS = prevReverify;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

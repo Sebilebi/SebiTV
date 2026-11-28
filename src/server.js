@@ -10,6 +10,12 @@ import { JellyfinClient } from './jellyfin.js';
 import { SebiEngine } from './engine.js';
 import { logger } from './logger.js';
 import { getPreferences, savePreferences } from './preferences.js';
+import {
+  RemoteAuthGate,
+  isExternalDomainRequest,
+  proxyHttpToJellyfin,
+  attachJellyfinWebSocketProxy,
+} from './remote-gate.js';
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
@@ -42,8 +48,20 @@ export function createSebiApp() {
   const qbit = new QbitClient(getConfig);
   const jellyfin = new JellyfinClient(getConfig, db);
   const engine = new SebiEngine({ getConfig, db, catalog, indexers, qbit, jellyfin });
+  const remoteGate = new RemoteAuthGate(db, getConfig);
 
   const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const pathname = url.pathname;
+    const isExternal = isExternalDomainRequest(req);
+
+    // Barrera Zero-Trust para peticiones externas (Cloudflare Tunnel / dominio público):
+    // Por defecto devuelve 404 vacío (0 bytes, como página inexistente) salvo sesión aprobada en Authentik.
+    if (isExternal) {
+      const allowed = await remoteGate.checkHttpAccess(req, res, url);
+      if (!allowed) return;
+    }
+
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
@@ -53,9 +71,6 @@ export function createSebiApp() {
       res.end();
       return;
     }
-
-    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-    const pathname = url.pathname;
 
     try {
       // 0. Servir activos del plugin web en vivo sin caché para que nunca queden desactualizados en Jellyfin
@@ -111,11 +126,13 @@ export function createSebiApp() {
       // 1b. Sincronización automática del token de sesión desde el navegador Jellyfin (cero configuración manual)
       if (req.method === 'POST' && pathname === '/api/jellyfin-auth') {
         const { accessToken, userId } = await readJsonBody(req);
-        const ok = await jellyfin.saveBrowserToken(accessToken, userId);
-        if (ok) {
+        const result = await jellyfin.saveBrowserToken(accessToken, userId);
+        const ok = typeof result === 'object' ? result.ok : Boolean(result);
+        const isAdmin = typeof result === 'object' ? Boolean(result.isAdmin) : ok;
+        if (ok && isAdmin) {
           await jellyfin.refreshLibraries();
         }
-        sendJson(res, 200, { ok });
+        sendJson(res, 200, { ok, isAdmin });
         return;
       }
 
@@ -219,6 +236,12 @@ export function createSebiApp() {
           subdlConfigured: Boolean(cfg.subdlApiKey),
           windowBehind: cfg.windowBehind,
           windowAhead: cfg.windowAhead,
+          authentikConfigured: Boolean(cfg.authentikClientId && cfg.authentikAuthorizeUrl),
+          authentikClientId: cfg.authentikClientId || '',
+          authentikSecretConfigured: Boolean(cfg.authentikClientSecret),
+          authentikAuthorizeUrl: cfg.authentikAuthorizeUrl || '',
+          authentikInternalUrl: cfg.authentikInternalUrl || '',
+          authentikRequiredGroup: cfg.authentikRequiredGroup || '',
         });
         return;
       }
@@ -235,6 +258,11 @@ export function createSebiApp() {
           'subdlApiKey',
           'windowBehind',
           'windowAhead',
+          'authentikClientId',
+          'authentikClientSecret',
+          'authentikAuthorizeUrl',
+          'authentikInternalUrl',
+          'authentikRequiredGroup',
         ];
         for (const k of allowed) {
           if (body[k] !== undefined) {
@@ -612,6 +640,14 @@ export function createSebiApp() {
         return;
       }
 
+      // Si la petición autorizada viene por dominio/proxy unificado y no es /api/* ni /ui/*, enrutar en streaming a Jellyfin (:8096)
+      if (!pathname.startsWith('/api/') && !pathname.startsWith('/ui/')) {
+        if (isExternal) {
+          proxyHttpToJellyfin(req, res, getConfig().jellyfinUrl);
+          return;
+        }
+      }
+
       sendJson(res, 404, { error: `Ruta no encontrada: ${pathname}` });
     } catch (err) {
       logger.error('API', `${req.method} ${pathname}`, err.message || 'Error interno en SebiTV', {
@@ -622,6 +658,8 @@ export function createSebiApp() {
       sendJson(res, 500, { error: err.message || 'Error interno en SebiTV' });
     }
   });
+
+  attachJellyfinWebSocketProxy(server, getConfig, remoteGate);
 
   return { server, db, engine, getConfig };
 }

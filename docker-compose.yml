@@ -2,7 +2,7 @@ services:
   # Inicializador rápido (1 seg): crea carpetas con permisos 1000:1000,
   # preconfigura qBittorrent sin pedir contraseña local y copia el plugin web de Jellyfin
   sebitv-init:
-    image: sebitv-local:1.6.21
+    image: sebitv-local:1.7.0
     pull_policy: build
     build:
       context: .
@@ -56,7 +56,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
       - JELLYFIN_WEB_DIR=/cache/jellyfin-web-sebitv
-      - SEBITV_WEB_REV=5
+      - SEBITV_WEB_REV=6
     volumes:
       - /srv/media/appdata/jellyfin/config:/config
       - /srv/media/appdata/jellyfin/cache:/cache
@@ -72,7 +72,7 @@ services:
               capabilities: [gpu, compute, utility, video]
 
   sebitv:
-    image: sebitv-local:1.6.21
+    image: sebitv-local:1.7.0
     pull_policy: build
     build:
       context: .
@@ -117,6 +117,11 @@ services:
       - WINDOW_AHEAD=${WINDOW_AHEAD:-1}
       - MOVIE_RETENTION_HOURS=${MOVIE_RETENTION_HOURS:-48}
       - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-5}
+      - AUTHENTIK_CLIENT_ID=${AUTHENTIK_CLIENT_ID:-}
+      - AUTHENTIK_CLIENT_SECRET=${AUTHENTIK_CLIENT_SECRET:-}
+      - AUTHENTIK_AUTHORIZE_URL=${AUTHENTIK_AUTHORIZE_URL:-}
+      - AUTHENTIK_INTERNAL_URL=${AUTHENTIK_INTERNAL_URL:-}
+      - AUTHENTIK_REQUIRED_GROUP=${AUTHENTIK_REQUIRED_GROUP:-}
     volumes:
       - /srv/media/appdata/sebitv/config:/config
       - /srv/media:/data

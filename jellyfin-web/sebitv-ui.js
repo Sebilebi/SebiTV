@@ -3,15 +3,19 @@
   window.__SEBITV_LOADED__ = true;
 
   const cfg = window.SEBITV_CONFIG || {};
+  const isDefaultWebPort = !window.location.port || window.location.port === '80' || window.location.port === '443';
   const API_BASE = cfg.publicUrl
     ? cfg.publicUrl.replace(/\/+$/, '')
-    : `${window.location.protocol}//${window.location.hostname}:${cfg.port || '8099'}`;
+    : isDefaultWebPort
+      ? window.location.origin
+      : `${window.location.protocol}//${window.location.hostname}:${cfg.port || '8099'}`;
 
   const state = {
     overlayOpen: false,
     currentView: 'discover', // 'discover' | 'detail' | 'downloads' | 'preferences' | 'logs' | 'settings'
     detailKey: null, // { mediaType, tmdbId, selectedSeason }
     activeDownloadsCount: 0,
+    isJellyfinAdmin: true,
     pollTimer: null,
     lastHash: '',
   };
@@ -327,12 +331,18 @@
             <button class="sebitv-nav-tab" id="sebitv-nav-prefs" data-nav="preferences">
               ${ico('tune', 'sm')}<span>Preferencias</span>
             </button>
+            ${
+              state.isJellyfinAdmin !== false
+                ? `
             <button class="sebitv-nav-tab" id="sebitv-nav-logs" data-nav="logs">
               ${ico('logs', 'sm')}<span>Logs</span>
             </button>
             <button class="sebitv-nav-tab" id="sebitv-nav-cfg" data-nav="settings" title="Ajustes">
               ${ico('settings', 'sm')}<span>Ajustes</span>
             </button>
+            `
+                : ''
+            }
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end;min-width:220px;">
             <div class="sebitv-search-wrap">
@@ -352,8 +362,10 @@
     document.getElementById('sebitv-nav-home').onclick = () => renderDiscoverInModal();
     document.getElementById('sebitv-nav-dl').onclick = () => renderDownloadsInModal();
     document.getElementById('sebitv-nav-prefs').onclick = () => renderPreferencesInModal();
-    document.getElementById('sebitv-nav-logs').onclick = () => renderLogsInModal();
-    document.getElementById('sebitv-nav-cfg').onclick = () => renderSettingsInModal();
+    const navLogs = document.getElementById('sebitv-nav-logs');
+    if (navLogs) navLogs.onclick = () => renderLogsInModal();
+    const navCfg = document.getElementById('sebitv-nav-cfg');
+    if (navCfg) navCfg.onclick = () => renderSettingsInModal();
 
     const searchInput = document.getElementById('sebitv-global-search');
     let debounce = null;
@@ -522,12 +534,18 @@
           }
         }
       }
-      if (token && !state.tokenSynced) {
+      if (token && state.syncedTokenValue !== token) {
         const res = await api('/api/jellyfin-auth', {
           method: 'POST',
           body: JSON.stringify({ accessToken: token, userId }),
         });
-        if (res.ok) state.tokenSynced = true;
+        if (res.ok) {
+          state.tokenSynced = true;
+          state.syncedTokenValue = token;
+          if (typeof res.isAdmin === 'boolean') {
+            state.isJellyfinAdmin = res.isAdmin;
+          }
+        }
       }
     } catch {
       // Silenciar hasta que el usuario inicie sesión en Jellyfin
@@ -1763,6 +1781,39 @@
             <input type="number" min="0" max="10" id="sebitv-cfg-ahead" value="${settings.windowAhead}">
           </div>
         </div>
+
+        <hr style="border:none;border-top:1px solid var(--sebi-border);margin:18px 0 14px;">
+        <div class="sebitv-section-title" style="margin-bottom:6px;">Acceso Remoto Zero-Trust (Opcional — Authentik OIDC)</div>
+        <p style="color:var(--sebi-muted);font-size:12px;margin-top:0;margin-bottom:12px;">
+          Por defecto cualquier dominio externo recibe <code>HTTP 404</code> vacío. Al rellenar tu proveedor OIDC de Authentik, solo los navegadores invitados con permiso entrarán al servidor.
+        </p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <div class="sebitv-form-group" style="flex:1;min-width:220px;">
+            <label>Authentik Client ID</label>
+            <input type="text" id="sebitv-cfg-ak-id" value="${esc(settings.authentikClientId || '')}" placeholder="Client ID del proveedor OIDC en Authentik">
+          </div>
+          <div class="sebitv-form-group" style="flex:1;min-width:220px;">
+            <label>Authentik Client Secret (Opcional en proveedor Público)</label>
+            <input type="password" id="sebitv-cfg-ak-secret" placeholder="${
+              settings.authentikSecretConfigured ? 'Guardado — escribe para reemplazar' : 'Client Secret (si el proveedor es Confidential)'
+            }">
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <div class="sebitv-form-group" style="flex:1;min-width:240px;">
+            <label>URL Pública Authorize (Navegador)</label>
+            <input type="text" id="sebitv-cfg-ak-auth" value="${esc(settings.authentikAuthorizeUrl || '')}" placeholder="https://auth.tudominio.com/application/o/authorize/">
+          </div>
+          <div class="sebitv-form-group" style="flex:1;min-width:200px;">
+            <label>URL Interna Authentik (LAN)</label>
+            <input type="text" id="sebitv-cfg-ak-int" value="${esc(settings.authentikInternalUrl || '')}" placeholder="http://192.168.1.218:9000">
+          </div>
+          <div class="sebitv-form-group" style="flex:1;min-width:160px;">
+            <label>Grupo/Rol Requerido (Opcional)</label>
+            <input type="text" id="sebitv-cfg-ak-grp" value="${esc(settings.authentikRequiredGroup || '')}" placeholder="Ej: sebitv">
+          </div>
+        </div>
+
         <div style="display:flex;align-items:center;gap:12px;">
           <button class="sebitv-pill-btn" id="sebitv-cfg-save">${ico('check', 'sm')}<span>Guardar Ajustes</span></button>
           <span id="sebitv-cfg-msg" style="font-size:13px;color:var(--sebi-green);"></span>
@@ -1773,7 +1824,13 @@
         const payload = {
           windowBehind: Number(document.getElementById('sebitv-cfg-behind').value),
           windowAhead: Number(document.getElementById('sebitv-cfg-ahead').value),
+          authentikClientId: document.getElementById('sebitv-cfg-ak-id').value.trim(),
+          authentikAuthorizeUrl: document.getElementById('sebitv-cfg-ak-auth').value.trim(),
+          authentikInternalUrl: document.getElementById('sebitv-cfg-ak-int').value.trim(),
+          authentikRequiredGroup: document.getElementById('sebitv-cfg-ak-grp').value.trim(),
         };
+        const akSecretVal = document.getElementById('sebitv-cfg-ak-secret').value.trim();
+        if (akSecretVal) payload.authentikClientSecret = akSecretVal;
         const tmdbVal = document.getElementById('sebitv-cfg-tmdb').value.trim();
         const cookieVal = document.getElementById('sebitv-cfg-cookie').value.trim();
         if (tmdbVal) payload.tmdbApiKey = tmdbVal;

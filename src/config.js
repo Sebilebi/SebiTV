@@ -36,6 +36,12 @@ export function getBaseConfig() {
     windowAhead: Math.max(0, Number.parseInt(process.env.WINDOW_AHEAD || '1', 10)),
     movieRetentionHours: Math.max(0, Number.parseInt(process.env.MOVIE_RETENTION_HOURS || '48', 10)),
     pollIntervalSeconds: Math.max(3, Number.parseInt(process.env.POLL_INTERVAL_SECONDS || '5', 10)),
+    authentikClientId: (process.env.AUTHENTIK_CLIENT_ID || '').trim(),
+    authentikClientSecret: (process.env.AUTHENTIK_CLIENT_SECRET || '').trim(),
+    authentikAuthorizeUrl: (process.env.AUTHENTIK_AUTHORIZE_URL || '').trim(),
+    authentikInternalUrl: (process.env.AUTHENTIK_INTERNAL_URL || '').trim(),
+    authentikRequiredGroup: (process.env.AUTHENTIK_REQUIRED_GROUP || '').trim(),
+    authentikReverifySeconds: Math.max(0, Number.parseInt(process.env.AUTHENTIK_REVERIFY_SECONDS || '15', 10)),
   };
 }
 
@@ -56,5 +62,14 @@ export function resolveRuntimeConfig(db) {
     jellyfinUserId: overrides.jellyfinUserId || '',
     windowBehind: overrides.windowBehind !== undefined ? Number(overrides.windowBehind) : base.windowBehind,
     windowAhead: overrides.windowAhead !== undefined ? Number(overrides.windowAhead) : base.windowAhead,
+    authentikClientId: overrides.authentikClientId !== undefined ? overrides.authentikClientId : base.authentikClientId,
+    authentikClientSecret:
+      overrides.authentikClientSecret !== undefined ? overrides.authentikClientSecret : base.authentikClientSecret,
+    authentikAuthorizeUrl:
+      overrides.authentikAuthorizeUrl !== undefined ? overrides.authentikAuthorizeUrl : base.authentikAuthorizeUrl,
+    authentikInternalUrl:
+      overrides.authentikInternalUrl !== undefined ? overrides.authentikInternalUrl : base.authentikInternalUrl,
+    authentikRequiredGroup:
+      overrides.authentikRequiredGroup !== undefined ? overrides.authentikRequiredGroup : base.authentikRequiredGroup,
   };
 }
