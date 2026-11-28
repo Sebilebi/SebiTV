@@ -19,6 +19,7 @@
   /* Diccionario de iconos vectoriales Material Design (estilo nativo Jellyfin, sin emojis) */
   const SVG_PATHS = {
     explore: 'M12 2a10 10 0 1 0 10 10A10.01 10.01 0 0 0 12 2zm3.8 6.2-2.6 6-6 2.6 2.6-6 6-2.6zM12 13.1a1.1 1.1 0 1 0-1.1-1.1 1.1 1.1 0 0 0 1.1 1.1z',
+    sebitv: 'M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z',
     search: 'M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
     download: 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z',
     play: 'M8 5v14l11-7z',
@@ -114,16 +115,7 @@
   }
 
   function syncHudVisibility() {
-    const playing = isVideoPlaybackActive();
-    const fab = document.getElementById('sebitv-fab');
-    if (fab) {
-      fab.classList.toggle('is-hidden-video', playing);
-    }
-    const hBtn = document.getElementById('sebitv-header-trigger');
-    if (hBtn) {
-      hBtn.style.display = playing ? 'none' : '';
-    }
-    if (playing && state.overlayOpen) {
+    if (isVideoPlaybackActive() && state.overlayOpen) {
       closeOverlay();
     }
   }
@@ -210,65 +202,76 @@
   }
 
   /* =========================================================================
-     1. Dock minimalista + Botón integrado en cabecera nativa de Jellyfin
+     1. Integración nativa en el Menú de Perfil de Jellyfin (3ª opción debajo de Ajustes)
      ========================================================================= */
-  function mountFloatingBar() {
-    if (!document.getElementById('sebitv-fab')) {
-      const bar = document.createElement('div');
-      bar.id = 'sebitv-fab';
-      bar.className = 'sebitv-fab-bar';
-      bar.innerHTML = `
-        <button class="sebitv-dock-btn primary" id="sebitv-open-catalog" title="Explorar catálogo global de Películas, Series y Anime">
-          ${ico('explore')}
-          <span>Catálogo</span>
-        </button>
-        <div class="sebitv-dock-divider"></div>
-        <button class="sebitv-dock-btn" id="sebitv-open-downloads" title="Descargas en curso">
-          ${ico('download')}
-          <span id="sebitv-dl-count" class="sebitv-badge-count" style="display:none">0</span>
-        </button>
-        <button class="sebitv-dock-btn" id="sebitv-open-prefs" title="Preferencias de Calidad, Idioma y Subtítulos">
-          ${ico('tune')}
-        </button>
-        <button class="sebitv-dock-btn" id="sebitv-open-settings" title="Estado de servicios y ajustes">
-          ${ico('settings')}
-        </button>
-      `;
-      document.body.appendChild(bar);
+  function injectProfileMenuOption() {
+    // Asegurar que no quede ningún HUD flotante antiguo
+    document.getElementById('sebitv-fab')?.remove();
+    document.getElementById('sebitv-header-trigger')?.remove();
 
-      document.getElementById('sebitv-open-catalog').addEventListener('click', () => openOverlay('discover'));
-      document.getElementById('sebitv-open-downloads').addEventListener('click', () => openOverlay('downloads'));
-      document.getElementById('sebitv-open-prefs').addEventListener('click', () => openOverlay('preferences'));
-      document.getElementById('sebitv-open-settings').addEventListener('click', () => openOverlay('settings'));
-    }
+    // 1A. Menú desplegable MUI de Perfil arriba a la derecha (Perfil -> Ajustes -> SebiTV)
+    const menus = document.querySelectorAll('ul.MuiMenu-list[role="menu"], ul[role="menu"]');
+    for (const menuList of menus) {
+      const settingsItem = menuList.querySelector('a[href*="mypreferencesmenu"]');
+      const profileItem = menuList.querySelector('a[href*="userprofile"]');
+      if (!settingsItem && !profileItem) continue;
 
-    // Integrar también acceso directo limpio en la barra superior VISIBLE de Jellyfin (MUI 12.4 primero, ignorando .skinHeader oculta)
-    const headerRight = (() => {
-      const muiToolbars = [...document.querySelectorAll('.MuiAppBar-root .MuiToolbar-root')].filter(
-        (el) => el.offsetParent !== null
-      );
-      if (muiToolbars.length > 0) {
-        const boxes = [...muiToolbars[0].children];
-        if (boxes.length >= 2) return boxes[boxes.length - 1];
+      let existing = menuList.querySelector('#sebitv-profile-menu-item');
+      if (!existing) {
+        const anchorRef = settingsItem || profileItem;
+        const sebitvItem = anchorRef.cloneNode(true);
+        sebitvItem.id = 'sebitv-profile-menu-item';
+        sebitvItem.removeAttribute('href');
+        sebitvItem.setAttribute('tabindex', '-1');
+        sebitvItem.style.cursor = 'pointer';
+
+        const svgPath = sebitvItem.querySelector('svg path');
+        if (svgPath) {
+          svgPath.setAttribute('d', SVG_PATHS.sebitv);
+        }
+        const svgEl = sebitvItem.querySelector('svg');
+        if (svgEl) {
+          svgEl.setAttribute('data-testid', 'SebiTvIcon');
+        }
+
+        const labelEl =
+          sebitvItem.querySelector('.MuiListItemText-primary') ||
+          sebitvItem.querySelector('.MuiListItemText-root span') ||
+          sebitvItem.querySelector('span');
+        if (labelEl) {
+          labelEl.textContent = 'SebiTV';
+        }
+
+        const badgeWrap = document.createElement('span');
+        badgeWrap.className = 'sebitv-profile-dl-badge';
+        badgeWrap.innerHTML = `<span class="sebitv-badge-count" data-sebi-dl-badge="1" style="display:${
+          state.activeDownloadsCount > 0 ? 'inline-flex' : 'none'
+        }">${state.activeDownloadsCount}</span>`;
+        sebitvItem.appendChild(badgeWrap);
+
+        sebitvItem.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const pop = sebitvItem.closest('.MuiPopover-root, .MuiModal-root');
+          const backdrop = pop?.querySelector('.MuiBackdrop-root');
+          if (backdrop) {
+            backdrop.click();
+          } else {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          }
+          openOverlay('discover');
+        });
+
+        // Insertar exactamente como 3ª opción justo debajo de "Ajustes"
+        anchorRef.insertAdjacentElement('afterend', sebitvItem);
+      } else {
+        const b = existing.querySelector('[data-sebi-dl-badge="1"]');
+        if (b) {
+          b.style.display = state.activeDownloadsCount > 0 ? 'inline-flex' : 'none';
+          b.textContent = String(state.activeDownloadsCount);
+        }
       }
-      return [...document.querySelectorAll('.skinHeader .headerRight')].find((el) => el.offsetParent !== null) || null;
-    })();
-    const existingTrigger = document.getElementById('sebitv-header-trigger');
-    if (existingTrigger && headerRight && !headerRight.contains(existingTrigger)) {
-      existingTrigger.remove();
     }
-    if (headerRight && !document.getElementById('sebitv-header-trigger')) {
-      const hBtn = document.createElement('button');
-      hBtn.type = 'button';
-      hBtn.id = 'sebitv-header-trigger';
-      hBtn.className = 'sebitv-header-btn';
-      hBtn.title = 'Abrir catálogo bajo demanda SebiTV';
-      hBtn.innerHTML = `${ico('explore', 'sm')}<span>Catálogo</span>`;
-      hBtn.addEventListener('click', () => openOverlay('discover'));
-      headerRight.prepend(hBtn);
-    }
-
-    syncHudVisibility();
   }
 
   /* =========================================================================
@@ -318,12 +321,15 @@
       <div class="sebitv-modal">
         <div class="sebitv-modal-header">
           <div class="sebitv-nav-tabs">
+            <span class="sebitv-brand-pill">${ico('sebitv')}<span>SebiTV</span></span>
             <button class="sebitv-nav-tab" id="sebitv-nav-home" data-nav="discover">
               ${ico('explore', 'sm')}<span>Catálogo</span>
             </button>
             <button class="sebitv-nav-tab" id="sebitv-nav-dl" data-nav="downloads">
               ${ico('download', 'sm')}<span>Descargas</span>
-              ${state.activeDownloadsCount > 0 ? `<span class="sebitv-badge-count">${state.activeDownloadsCount}</span>` : ''}
+              <span id="sebitv-modal-dl-count" data-sebi-dl-badge="1" class="sebitv-badge-count" style="display:${
+                state.activeDownloadsCount > 0 ? 'inline-flex' : 'none'
+              }">${state.activeDownloadsCount}</span>
             </button>
             <button class="sebitv-nav-tab" id="sebitv-nav-prefs" data-nav="preferences">
               ${ico('tune', 'sm')}<span>Preferencias</span>
@@ -2051,11 +2057,10 @@
       const prevCount = state.activeDownloadsCount;
       state.activeDownloadsCount = count;
 
-      const badge = document.getElementById('sebitv-dl-count');
-      if (badge) {
+      document.querySelectorAll('[data-sebi-dl-badge="1"]').forEach((badge) => {
         badge.style.display = count > 0 ? 'inline-flex' : 'none';
         badge.textContent = String(count);
-      }
+      });
 
       if (state.overlayOpen) {
         if (state.currentView === 'downloads') {
@@ -2089,7 +2094,7 @@
   }
 
   function onRouteOrDomChange() {
-    mountFloatingBar();
+    injectProfileMenuOption();
     syncHudVisibility();
     injectHomeDiscoverRows(false);
     hookNativeJellyfinSearch();
@@ -2110,6 +2115,7 @@
   document.addEventListener('ended', () => setTimeout(syncHudVisibility, 80), true);
 
   const observer = new MutationObserver(() => {
+    injectProfileMenuOption();
     syncHudVisibility();
     if (window.location.hash !== state.lastHash) {
       state.lastHash = window.location.hash;
@@ -2119,7 +2125,7 @@
   });
 
   function boot() {
-    mountFloatingBar();
+    injectProfileMenuOption();
     syncBrowserJellyfinToken();
     setTimeout(onRouteOrDomChange, 800);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });

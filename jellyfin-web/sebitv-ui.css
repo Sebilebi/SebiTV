@@ -55,118 +55,30 @@
 }
 
 /* ==========================================================================
-   1. Ocultación estricta e instantánea del HUD durante reproducción de vídeo
+   1. Protección durante reproducción de vídeo y badge en menú de perfil
    ========================================================================== */
-body:has(#videoOsdPage:not(.hide)) .sebitv-fab-bar,
-body:has(.videoOsdPage:not(.hide)) .sebitv-fab-bar,
-body:has(.videoPlayerContainer) .sebitv-fab-bar,
-body:has(video.htmlvideoplayer) .sebitv-fab-bar,
-:fullscreen .sebitv-fab-bar,
-:-webkit-full-screen .sebitv-fab-bar,
-.sebitv-fab-bar.is-hidden-video {
-  display: none !important;
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-
-/* ==========================================================================
-   2. Dock Flotante Minimalista + Botón Integrado en Cabecera de Jellyfin
-   ========================================================================== */
-.sebitv-fab-bar {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 990;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(20, 20, 23, 0.88);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 4px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-  font-family: var(--sebi-font);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-
-@media (max-width: 768px) {
-  .sebitv-fab-bar {
-    bottom: 68px;
-    right: 12px;
-  }
-}
-
-.sebitv-dock-btn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.82);
-  height: 36px;
-  padding: 0 10px;
-  border-radius: 6px;
-  cursor: pointer;
+.sebitv-profile-dl-badge {
+  margin-left: auto;
+  padding-left: 8px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-family: var(--sebi-font);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  transition: background 0.15s ease, color 0.15s ease;
-  position: relative;
 }
 
-.sebitv-dock-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-
-.sebitv-dock-btn.primary {
-  background: rgba(0, 164, 220, 0.16);
-  color: #5cd3ff;
-  font-weight: 600;
-  padding: 0 13px;
-}
-
-.sebitv-dock-btn.primary:hover {
-  background: var(--sebi-accent);
-  color: #fff;
-}
-
-.sebitv-dock-divider {
-  width: 1px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.1);
-  margin: 0 2px;
-}
-
-.sebitv-header-btn {
-  appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.9);
-  height: 34px;
-  padding: 0 12px;
-  margin-right: 6px;
-  border-radius: 6px;
-  cursor: pointer;
+.sebitv-brand-pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-family: var(--sebi-font);
-  font-size: 13px;
-  font-weight: 500;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+  padding-right: 10px;
+  margin-right: 4px;
+  border-right: 1px solid var(--sebi-border);
+  letter-spacing: -0.01em;
 }
 
-.sebitv-header-btn:hover {
-  background: rgba(0, 164, 220, 0.2);
-  border-color: rgba(0, 164, 220, 0.5);
-  color: #fff;
+.sebitv-brand-pill svg {
+  color: var(--sebi-accent);
 }
 
 /* ==========================================================================
